@@ -1,0 +1,154 @@
+[
+  {
+    "trace_id": "trc_003_escalate",
+    "started_at": "2026-05-01T15:21:04.000Z",
+    "modality": "voice",
+    "customer": null,
+    "intent": "ambiguous",
+    "journey": "escalate",
+    "outcome": "escalated",
+    "turn_count": 1,
+    "total_latency_ms": 2418,
+    "total_cost_usd": 0.00011
+  },
+  {
+    "trace_id": "trc_002_qa_retry",
+    "started_at": "2026-05-01T14:08:30.000Z",
+    "modality": "chat",
+    "customer": {
+      "customer_id": "2087",
+      "display_label": "Cust #2087 · Silver",
+      "tier": "silver"
+    },
+    "intent": "product_qa",
+    "journey": "product_qa",
+    "outcome": "contained",
+    "turn_count": 1,
+    "total_latency_ms": 4318,
+    "total_cost_usd": 0.00342
+  },
+  {
+    "trace_id": "trc_001_order_happy",
+    "started_at": "2026-05-01T13:42:08.000Z",
+    "modality": "chat",
+    "customer": {
+      "customer_id": "1042",
+      "display_label": "Cust #1042 · Gold",
+      "tier": "gold"
+    },
+    "intent": "order_status",
+    "journey": "order_status",
+    "outcome": "contained",
+    "turn_count": 1,
+    "total_latency_ms": 1842,
+    "total_cost_usd": 0.00138
+  },
+  {
+    "trace_id": "trc_004_service",
+    "started_at": "2026-05-01T13:18:42.000Z",
+    "modality": "chat",
+    "customer": {
+      "customer_id": "4156",
+      "display_label": "Cust #4156 · Gold",
+      "tier": "gold"
+    },
+    "intent": "service_request",
+    "journey": "service_request",
+    "outcome": "contained",
+    "turn_count": 4,
+    "total_latency_ms": 7240,
+    "total_cost_usd": 0.00521
+  },
+  {
+    "trace_id": "trc_005_qa_refusal",
+    "started_at": "2026-05-01T12:55:11.000Z",
+    "modality": "chat",
+    "customer": {
+      "customer_id": "5203",
+      "display_label": "Cust #5203 · Silver",
+      "tier": "silver"
+    },
+    "intent": "product_qa",
+    "journey": "product_qa",
+    "outcome": "refused",
+    "turn_count": 2,
+    "total_latency_ms": 3812,
+    "total_cost_usd": 0.00224
+  },
+  {
+    "trace_id": "trc_006_order_voice",
+    "started_at": "2026-05-01T12:31:08.000Z",
+    "modality": "voice",
+    "customer": {
+      "customer_id": "1042",
+      "display_label": "Cust #1042 · Gold",
+      "tier": "gold"
+    },
+    "intent": "order_status",
+    "journey": "order_status",
+    "outcome": "contained",
+    "turn_count": 2,
+    "total_latency_ms": 5104,
+    "total_cost_usd": 0.00198
+  },
+  {
+    "trace_id": "trc_007_oos",
+    "started_at": "2026-05-01T11:48:22.000Z",
+    "modality": "chat",
+    "customer": null,
+    "intent": "out_of_scope",
+    "journey": "out_of_scope",
+    "outcome": "escalated",
+    "turn_count": 1,
+    "total_latency_ms": 1622,
+    "total_cost_usd": 0.00018
+  },
+  {
+    "trace_id": "trc_008_qa_long",
+    "started_at": "2026-05-01T11:14:09.000Z",
+    "modality": "chat",
+    "customer": {
+      "customer_id": "3391",
+      "display_label": "Cust #3391 · Bronze",
+      "tier": "bronze"
+    },
+    "intent": "product_qa",
+    "journey": "product_qa",
+    "outcome": "contained",
+    "turn_count": 3,
+    "total_latency_ms": 9128,
+    "total_cost_usd": 0.00408
+  },
+  {
+    "trace_id": "trc_009_service_lost",
+    "started_at": "2026-05-01T10:42:55.000Z",
+    "modality": "voice",
+    "customer": {
+      "customer_id": "2087",
+      "display_label": "Cust #2087 · Silver",
+      "tier": "silver"
+    },
+    "intent": "service_request",
+    "journey": "service_request",
+    "outcome": "escalated",
+    "turn_count": 5,
+    "total_latency_ms": 12480,
+    "total_cost_usd": 0.00684
+  },
+  {
+    "trace_id": "trc_010_order_disambig",
+    "started_at": "2026-05-01T10:08:31.000Z",
+    "modality": "chat",
+    "customer": {
+      "customer_id": "4156",
+      "display_label": "Cust #4156 · Gold",
+      "tier": "gold"
+    },
+    "intent": "order_status",
+    "journey": "order_status",
+    "outcome": "contained",
+    "turn_count": 3,
+    "total_latency_ms": 6802,
+    "total_cost_usd": 0.00312
+  }
+]

@@ -1,0 +1,120 @@
+{
+  "trace_id": "trc_003_escalate",
+  "started_at": "2026-05-01T15:21:04.000Z",
+  "ended_at": "2026-05-01T15:21:07.218Z",
+  "modality": "voice",
+  "customer": null,
+  "intent": "ambiguous",
+  "journey": "escalate",
+  "outcome": "escalated",
+  "turn_count": 1,
+  "total_latency_ms": 2418,
+  "total_cost_usd": 0.00011,
+  "events": [
+    {
+      "trace_id": "trc_003_escalate",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T15:21:04.000Z",
+      "modality": "voice",
+      "event_type": "stt",
+      "event_payload": {
+        "audio_duration_ms": 6200,
+        "transcript": "uh hi I think there's a problem with um something I bought or maybe it's the other thing I'm not sure can you help",
+        "confidence": 0.71,
+        "pii_redacted": true
+      },
+      "latency_ms": 482,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_003_escalate",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T15:21:04.612Z",
+      "modality": "voice",
+      "event_type": "customer_context",
+      "event_payload": {
+        "customer": null,
+        "recent_orders_count": 0,
+        "prior_contacts_count": 0,
+        "is_anonymous": true
+      },
+      "latency_ms": 88,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_003_escalate",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T15:21:05.018Z",
+      "modality": "voice",
+      "event_type": "router",
+      "event_payload": {
+        "model": "gemini-2.0-flash",
+        "intent": "ambiguous",
+        "confidence": 0.34,
+        "threshold": 0.7,
+        "reasoning": "Utterance lacks specific intent markers. 'Problem with something I bought' could be order status, return request, product defect, or warranty claim. Anonymous caller — no order history to disambiguate. Confidence below threshold; route to escalation per low-confidence policy.",
+        "candidates": [
+          { "intent": "order_status", "score": 0.34 },
+          { "intent": "product_qa", "score": 0.27 },
+          { "intent": "service_request", "score": 0.19 },
+          { "intent": "out_of_scope", "score": 0.12 },
+          { "intent": "ambiguous", "score": 0.08 }
+        ]
+      },
+      "latency_ms": 412,
+      "llm_input_tokens": 246,
+      "llm_output_tokens": 88,
+      "llm_cost_usd": 0.00011
+    },
+    {
+      "trace_id": "trc_003_escalate",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T15:21:05.612Z",
+      "modality": "voice",
+      "event_type": "escalation",
+      "event_payload": {
+        "reason": "low_confidence",
+        "detail": "Router confidence 0.34 fell below the configured threshold of 0.70. No single intent dominates the candidate distribution; top three (order_status 0.34, product_qa 0.27, service_request 0.19) are within 0.15 of each other. Escalating to human associate with full transcript and context payload."
+      },
+      "latency_ms": 14,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_003_escalate",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T15:21:06.218Z",
+      "modality": "voice",
+      "event_type": "agent_response",
+      "event_payload": {
+        "text": "Thanks for calling. I want to make sure you get the right help — let me connect you with a specialist who can take a closer look at what's going on.",
+        "audio_url": "mock://audio/trc_003_escalate-response.wav"
+      },
+      "latency_ms": 0,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_003_escalate",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T15:21:06.418Z",
+      "modality": "voice",
+      "event_type": "tts",
+      "event_payload": {
+        "voice": "en-US-Studio-O",
+        "audio_duration_ms": 5800,
+        "audio_url": "mock://audio/trc_003_escalate-response.wav"
+      },
+      "latency_ms": 800,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    }
+  ]
+}

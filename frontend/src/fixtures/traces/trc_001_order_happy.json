@@ -1,0 +1,135 @@
+{
+  "trace_id": "trc_001_order_happy",
+  "started_at": "2026-05-01T13:42:08.000Z",
+  "ended_at": "2026-05-01T13:42:11.184Z",
+  "modality": "chat",
+  "customer": {
+    "customer_id": "1042",
+    "display_label": "Cust #1042 · Gold",
+    "tier": "gold"
+  },
+  "intent": "order_status",
+  "journey": "order_status",
+  "outcome": "contained",
+  "turn_count": 1,
+  "total_latency_ms": 1842,
+  "total_cost_usd": 0.00138,
+  "events": [
+    {
+      "trace_id": "trc_001_order_happy",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T13:42:08.000Z",
+      "modality": "chat",
+      "event_type": "user_message",
+      "event_payload": {
+        "text": "Hi, where's my order #4521? It was supposed to arrive by Friday.",
+        "pii_redacted": true
+      },
+      "latency_ms": 0,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_001_order_happy",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T13:42:08.142Z",
+      "modality": "chat",
+      "event_type": "customer_context",
+      "event_payload": {
+        "customer": {
+          "customer_id": "1042",
+          "display_label": "Cust #1042 · Gold",
+          "tier": "gold"
+        },
+        "recent_orders_count": 3,
+        "prior_contacts_count": 1,
+        "is_anonymous": false
+      },
+      "latency_ms": 142,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_001_order_happy",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T13:42:08.498Z",
+      "modality": "chat",
+      "event_type": "router",
+      "event_payload": {
+        "model": "gemini-2.0-flash",
+        "intent": "order_status",
+        "confidence": 0.94,
+        "threshold": 0.7,
+        "reasoning": "User explicitly references an order ID (#4521) and asks about delivery status. Strong order-status signal; no ambiguity with product Q&A or service request.",
+        "candidates": [
+          { "intent": "order_status", "score": 0.94 },
+          { "intent": "product_qa", "score": 0.03 },
+          { "intent": "service_request", "score": 0.02 },
+          { "intent": "out_of_scope", "score": 0.01 }
+        ]
+      },
+      "latency_ms": 356,
+      "llm_input_tokens": 218,
+      "llm_output_tokens": 64,
+      "llm_cost_usd": 0.00009
+    },
+    {
+      "trace_id": "trc_001_order_happy",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T13:42:09.012Z",
+      "modality": "chat",
+      "event_type": "synthesis",
+      "event_payload": {
+        "model": "gemini-2.0-pro",
+        "attempt": 1,
+        "response_text": "Thanks for reaching out — order #4521 (1× Cordless Drill X-200) shipped on April 28 via standard ground and is currently out for delivery today, May 1. The carrier estimates arrival between 2 PM and 6 PM local time. [cite: order:4521]",
+        "citations": [
+          {
+            "passage_id": "order:4521",
+            "span": "order_id=4521; sku=CD-X200; status=shipped; placed_at=2026-04-28; eta=2026-05-01T18:00:00Z"
+          }
+        ]
+      },
+      "latency_ms": 814,
+      "llm_input_tokens": 1432,
+      "llm_output_tokens": 122,
+      "llm_cost_usd": 0.00086
+    },
+    {
+      "trace_id": "trc_001_order_happy",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T13:42:10.342Z",
+      "modality": "chat",
+      "event_type": "verification",
+      "event_payload": {
+        "model": "gemini-2.0-pro",
+        "attempt": 1,
+        "verdict": "pass",
+        "score": 0.95,
+        "threshold": 0.8,
+        "rationale": "All factual claims (order ID, SKU, ship date, status, ETA) are directly supported by the order record cited. No unsupported assertions.",
+        "ungrounded_claims": []
+      },
+      "latency_ms": 530,
+      "llm_input_tokens": 968,
+      "llm_output_tokens": 54,
+      "llm_cost_usd": 0.00043
+    },
+    {
+      "trace_id": "trc_001_order_happy",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T13:42:11.184Z",
+      "modality": "chat",
+      "event_type": "agent_response",
+      "event_payload": {
+        "text": "Thanks for reaching out — order #4521 (1× Cordless Drill X-200) shipped on April 28 via standard ground and is currently out for delivery today, May 1. The carrier estimates arrival between 2 PM and 6 PM local time."
+      },
+      "latency_ms": 0,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+{
+  "trace_id": "trc_002_qa_retry",
+  "started_at": "2026-05-01T14:08:30.000Z",
+  "ended_at": "2026-05-01T14:08:35.612Z",
+  "modality": "chat",
+  "customer": {
+    "customer_id": "2087",
+    "display_label": "Cust #2087 · Silver",
+    "tier": "silver"
+  },
+  "intent": "product_qa",
+  "journey": "product_qa",
+  "outcome": "contained",
+  "turn_count": 1,
+  "total_latency_ms": 4318,
+  "total_cost_usd": 0.00342,
+  "events": [
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:30.000Z",
+      "modality": "chat",
+      "event_type": "user_message",
+      "event_payload": {
+        "text": "Does the X-200 cordless drill come with a battery, and how long does the battery last on a full charge?",
+        "pii_redacted": true
+      },
+      "latency_ms": 0,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:30.121Z",
+      "modality": "chat",
+      "event_type": "customer_context",
+      "event_payload": {
+        "customer": {
+          "customer_id": "2087",
+          "display_label": "Cust #2087 · Silver",
+          "tier": "silver"
+        },
+        "recent_orders_count": 0,
+        "prior_contacts_count": 0,
+        "is_anonymous": false
+      },
+      "latency_ms": 121,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:30.498Z",
+      "modality": "chat",
+      "event_type": "router",
+      "event_payload": {
+        "model": "gemini-2.0-flash",
+        "intent": "product_qa",
+        "confidence": 0.91,
+        "threshold": 0.7,
+        "reasoning": "Question references a specific SKU (X-200) and asks for product specifications (battery inclusion, runtime). Clear product Q&A — KB lookup required.",
+        "candidates": [
+          { "intent": "product_qa", "score": 0.91 },
+          { "intent": "order_status", "score": 0.05 },
+          { "intent": "out_of_scope", "score": 0.03 },
+          { "intent": "service_request", "score": 0.01 }
+        ]
+      },
+      "latency_ms": 377,
+      "llm_input_tokens": 234,
+      "llm_output_tokens": 71,
+      "llm_cost_usd": 0.00010
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:31.084Z",
+      "modality": "chat",
+      "event_type": "retrieval",
+      "event_payload": {
+        "query": "X-200 cordless drill battery included runtime charge",
+        "k": 5,
+        "passages": [
+          {
+            "passage_id": "kb:cd-x200-specs",
+            "source": "products/cd-x200-specs.md",
+            "content": "Cordless Drill X-200 — ships with one (1) 2.0Ah lithium-ion battery, one charger, and a soft-side carrying case. Battery delivers approximately 45 minutes of continuous drilling under typical load. Recharge time: 60 minutes from empty to full.",
+            "semantic_score": 0.89,
+            "keyword_score": 0.81,
+            "fused_score": 0.86,
+            "rerank_score": 0.94
+          },
+          {
+            "passage_id": "kb:cd-x200-warranty",
+            "source": "products/cd-x200-warranty.md",
+            "content": "Cordless Drill X-200 carries a three-year limited tool warranty. Battery warranty is one year, separate from the tool. Damage from non-OEM batteries voids coverage.",
+            "semantic_score": 0.62,
+            "keyword_score": 0.48,
+            "fused_score": 0.55,
+            "rerank_score": 0.51
+          },
+          {
+            "passage_id": "kb:battery-2ah-spec",
+            "source": "products/battery-2ah-spec.md",
+            "content": "Standard 2.0Ah lithium-ion battery pack — compatible with X-100, X-150, X-200 cordless tool families. Cell chemistry: NMC. Operating temperature: 0–40°C.",
+            "semantic_score": 0.71,
+            "keyword_score": 0.66,
+            "fused_score": 0.69,
+            "rerank_score": 0.78
+          }
+        ]
+      },
+      "latency_ms": 412,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:32.218Z",
+      "modality": "chat",
+      "event_type": "synthesis",
+      "event_payload": {
+        "model": "gemini-2.0-pro",
+        "attempt": 1,
+        "response_text": "The X-200 cordless drill ships with two 4.0Ah lithium-ion batteries plus a charger. Each battery provides about 90 minutes of runtime under typical drilling load, with a 45-minute recharge time. [cite: kb:cd-x200-specs]",
+        "citations": [
+          {
+            "passage_id": "kb:cd-x200-specs",
+            "span": "ships with one (1) 2.0Ah lithium-ion battery"
+          }
+        ]
+      },
+      "latency_ms": 762,
+      "llm_input_tokens": 1518,
+      "llm_output_tokens": 134,
+      "llm_cost_usd": 0.00091
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:33.142Z",
+      "modality": "chat",
+      "event_type": "verification",
+      "event_payload": {
+        "model": "gemini-2.0-pro",
+        "attempt": 1,
+        "verdict": "fail",
+        "score": 0.42,
+        "threshold": 0.8,
+        "rationale": "Response asserts battery quantity, capacity, and runtime that contradict the cited passage. The cited passage states one 2.0Ah battery and ~45 minutes runtime; the response claims two 4.0Ah batteries and 90 minutes. The citation is invalid.",
+        "ungrounded_claims": [
+          {
+            "claim": "ships with two 4.0Ah lithium-ion batteries",
+            "reason": "KB passage cd-x200-specs states 'one (1) 2.0Ah lithium-ion battery'."
+          },
+          {
+            "claim": "approximately 90 minutes of runtime",
+            "reason": "KB passage states '45 minutes of continuous drilling under typical load'."
+          },
+          {
+            "claim": "45-minute recharge time",
+            "reason": "KB passage states 'Recharge time: 60 minutes from empty to full'."
+          }
+        ]
+      },
+      "latency_ms": 548,
+      "llm_input_tokens": 1102,
+      "llm_output_tokens": 198,
+      "llm_cost_usd": 0.00073
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:33.842Z",
+      "modality": "chat",
+      "event_type": "synthesis",
+      "event_payload": {
+        "model": "gemini-2.0-pro",
+        "attempt": 2,
+        "response_text": "Yes — the X-200 cordless drill ships with one 2.0Ah lithium-ion battery, a charger, and a soft-side carrying case. The battery provides about 45 minutes of continuous drilling under typical load, and recharges from empty in roughly 60 minutes. [cite: kb:cd-x200-specs]",
+        "citations": [
+          {
+            "passage_id": "kb:cd-x200-specs",
+            "span": "ships with one (1) 2.0Ah lithium-ion battery, one charger, and a soft-side carrying case. Battery delivers approximately 45 minutes of continuous drilling under typical load. Recharge time: 60 minutes from empty to full."
+          }
+        ]
+      },
+      "latency_ms": 698,
+      "llm_input_tokens": 1612,
+      "llm_output_tokens": 118,
+      "llm_cost_usd": 0.00084
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:34.892Z",
+      "modality": "chat",
+      "event_type": "verification",
+      "event_payload": {
+        "model": "gemini-2.0-pro",
+        "attempt": 2,
+        "verdict": "pass",
+        "score": 0.92,
+        "threshold": 0.8,
+        "rationale": "Battery quantity (one), capacity (2.0Ah), runtime (~45 min), and recharge time (~60 min) all align with the cited passage. Citation span fully covers the asserted facts.",
+        "ungrounded_claims": []
+      },
+      "latency_ms": 502,
+      "llm_input_tokens": 1124,
+      "llm_output_tokens": 48,
+      "llm_cost_usd": 0.00056
+    },
+    {
+      "trace_id": "trc_002_qa_retry",
+      "turn_index": 0,
+      "timestamp": "2026-05-01T14:08:35.612Z",
+      "modality": "chat",
+      "event_type": "agent_response",
+      "event_payload": {
+        "text": "Yes — the X-200 cordless drill ships with one 2.0Ah lithium-ion battery, a charger, and a soft-side carrying case. The battery provides about 45 minutes of continuous drilling under typical load, and recharges from empty in roughly 60 minutes."
+      },
+      "latency_ms": 0,
+      "llm_input_tokens": 0,
+      "llm_output_tokens": 0,
+      "llm_cost_usd": 0
+    }
+  ]
+}

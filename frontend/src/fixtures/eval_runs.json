@@ -1,0 +1,98 @@
+[
+  {
+    "run_id": "evr_20260501_1100",
+    "run_timestamp": "2026-05-01T11:00:00.000Z",
+    "git_sha": "a1b2c3d",
+    "config_hash": "cfg_4f8a2e",
+    "total_queries": 152,
+    "primary_metrics": {
+      "containment": 0.638,
+      "refusal_precision": 0.892,
+      "intent_accuracy": 0.873,
+      "retrieval_hit_rate_at_5": 0.821,
+      "hallucination_rate_post_verifier": 0.034,
+      "latency_p95_ms": 1612,
+      "cost_per_call_usd": 0.00141
+    }
+  },
+  {
+    "run_id": "evr_20260430_1842",
+    "run_timestamp": "2026-04-30T18:42:00.000Z",
+    "git_sha": "9e7d1f2",
+    "config_hash": "cfg_4f8a2e",
+    "total_queries": 152,
+    "primary_metrics": {
+      "containment": 0.617,
+      "refusal_precision": 0.881,
+      "intent_accuracy": 0.864,
+      "retrieval_hit_rate_at_5": 0.812,
+      "hallucination_rate_post_verifier": 0.041,
+      "latency_p95_ms": 1648,
+      "cost_per_call_usd": 0.00139
+    }
+  },
+  {
+    "run_id": "evr_20260430_0915",
+    "run_timestamp": "2026-04-30T09:15:00.000Z",
+    "git_sha": "7c4b8a0",
+    "config_hash": "cfg_3a1d09",
+    "total_queries": 150,
+    "primary_metrics": {
+      "containment": 0.602,
+      "refusal_precision": 0.842,
+      "intent_accuracy": 0.851,
+      "retrieval_hit_rate_at_5": 0.798,
+      "hallucination_rate_post_verifier": 0.058,
+      "latency_p95_ms": 1782,
+      "cost_per_call_usd": 0.00148
+    }
+  },
+  {
+    "run_id": "evr_20260429_1620",
+    "run_timestamp": "2026-04-29T16:20:00.000Z",
+    "git_sha": "5a2e6d3",
+    "config_hash": "cfg_3a1d09",
+    "total_queries": 150,
+    "primary_metrics": {
+      "containment": 0.587,
+      "refusal_precision": 0.821,
+      "intent_accuracy": 0.832,
+      "retrieval_hit_rate_at_5": 0.781,
+      "hallucination_rate_post_verifier": 0.064,
+      "latency_p95_ms": 1812,
+      "cost_per_call_usd": 0.00152
+    }
+  },
+  {
+    "run_id": "evr_20260428_1430",
+    "run_timestamp": "2026-04-28T14:30:00.000Z",
+    "git_sha": "3f9c0a1",
+    "config_hash": "cfg_2b08e4",
+    "total_queries": 148,
+    "primary_metrics": {
+      "containment": 0.541,
+      "refusal_precision": 0.776,
+      "intent_accuracy": 0.808,
+      "retrieval_hit_rate_at_5": 0.742,
+      "hallucination_rate_post_verifier": 0.083,
+      "latency_p95_ms": 1944,
+      "cost_per_call_usd": 0.00161
+    }
+  },
+  {
+    "run_id": "evr_20260427_2055",
+    "run_timestamp": "2026-04-27T20:55:00.000Z",
+    "git_sha": "1d6f4e7",
+    "config_hash": "cfg_2b08e4",
+    "total_queries": 148,
+    "primary_metrics": {
+      "containment": 0.512,
+      "refusal_precision": 0.748,
+      "intent_accuracy": 0.789,
+      "retrieval_hit_rate_at_5": 0.721,
+      "hallucination_rate_post_verifier": 0.097,
+      "latency_p95_ms": 2018,
+      "cost_per_call_usd": 0.00164
+    }
+  }
+]
