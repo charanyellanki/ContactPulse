@@ -1,0 +1,50 @@
+[
+  {
+    "customer_id": "1042",
+    "display_label": "Cust #1042 · Gold",
+    "tier": "gold",
+    "lifetime_value_usd": 12450,
+    "open_orders": 3,
+    "recent_journey": "order_status"
+  },
+  {
+    "customer_id": "2087",
+    "display_label": "Cust #2087 · Silver",
+    "tier": "silver",
+    "lifetime_value_usd": 4280,
+    "open_orders": 0,
+    "recent_journey": "product_qa"
+  },
+  {
+    "customer_id": "3391",
+    "display_label": "Cust #3391 · Bronze",
+    "tier": "bronze",
+    "lifetime_value_usd": 612,
+    "open_orders": 1,
+    "recent_journey": "product_qa"
+  },
+  {
+    "customer_id": "4156",
+    "display_label": "Cust #4156 · Gold",
+    "tier": "gold",
+    "lifetime_value_usd": 18920,
+    "open_orders": 2,
+    "recent_journey": "service_request"
+  },
+  {
+    "customer_id": "5203",
+    "display_label": "Cust #5203 · Silver",
+    "tier": "silver",
+    "lifetime_value_usd": 3105,
+    "open_orders": 0,
+    "recent_journey": "product_qa"
+  },
+  {
+    "customer_id": "6078",
+    "display_label": "Cust #6078 · Bronze",
+    "tier": "bronze",
+    "lifetime_value_usd": 248,
+    "open_orders": 0,
+    "recent_journey": null
+  }
+]
