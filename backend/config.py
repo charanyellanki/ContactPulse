@@ -19,13 +19,32 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # GCP
     project_id: str = "contactpulse-dev"
+    gcp_region: str = "us-central1"
     bq_dataset: str = "contactpulse"
     gcs_bucket: str = "contactpulse-audio"
 
-    gemini_flash_model: str = "gemini-2.0-flash"
-    gemini_pro_model: str = "gemini-2.0-pro"
+    # Models — gemini-2.5 family (2.0 IDs were not yet GA on this project at
+    # bootstrap time). 2.5-pro is a "thinking" model: it burns ~150-300
+    # tokens internally before emitting text, so synthesis max_output_tokens
+    # must comfortably exceed the desired reply length.
+    gemini_flash_model: str = "gemini-2.5-flash"
+    gemini_pro_model: str = "gemini-2.5-pro"
 
+    # Agent pipeline thresholds
+    router_confidence_threshold: float = 0.6
+    grounding_min_score: float = 0.8
+    max_grounding_retries: int = 1
+
+    # Circuit breaker
+    circuit_breaker_failure_threshold: int = 3
+    circuit_breaker_window_seconds: int = 60
+
+    # DLP
+    dlp_enabled: bool = True
+
+    # Runtime
     environment: str = "development"
     api_version: str = "0.1.0"
 

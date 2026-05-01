@@ -223,6 +223,67 @@ def _gen_customers() -> list[dict]:
     ]
 
 
+# Realistic-looking SKUs per customer for the OrderStatusAgent. Three orders
+# per customer, deliberately spanning delivered / in_transit / processing so
+# the agent has interesting status text to surface.
+ORDER_SKUS: list[tuple[str, str]] = [
+    ("HD-DRL-X200", "Cordless Drill X-200"),
+    ("HD-FLT-FL90", "LED Floodlight FL-90"),
+    ("HD-THR-T300", "Smart Thermostat T-300"),
+    ("HD-CHR-PC12", "Patio Chair PC-12"),
+    ("HD-PNT-BSE5", "Premium Interior Paint, 5gal"),
+    ("HD-FAN-CF24", "Ceiling Fan CF-24"),
+    ("HD-WTR-WH40", "Tankless Water Heater WH-40"),
+    ("HD-DSH-DW18", "Stainless Dishwasher DW-18"),
+    ("HD-LAW-LM55", "Cordless Lawn Mower LM-55"),
+]
+
+ORDER_STATUSES: list[str] = ["delivered", "in_transit", "processing"]
+
+
+def _gen_orders(rng: random.Random) -> list[dict]:
+    """Three orders per seeded customer — one per status. Deterministic via
+    the shared RNG. Order dates fan out from the seed anchor so the agent's
+    ORDER BY order_date DESC LIMIT 3 query returns the most recent first."""
+    rows: list[dict] = []
+    order_seq = 1000
+    for customer_id in CUSTOMER_IDS:
+        # Walk back from anchor: most recent order is "processing", oldest "delivered"
+        for offset_days, status in (
+            (1, "processing"),
+            (4, "in_transit"),
+            (12, "delivered"),
+        ):
+            sku, product_name = rng.choice(ORDER_SKUS)
+            order_date = NOW_ANCHOR - timedelta(days=offset_days, hours=rng.randint(0, 23))
+            eta: datetime | None
+            tracking: str | None
+            if status == "delivered":
+                eta = order_date + timedelta(days=rng.randint(2, 5))
+                tracking = f"1Z{rng.randint(10**8, 10**9 - 1)}"
+            elif status == "in_transit":
+                eta = NOW_ANCHOR + timedelta(days=rng.randint(1, 3))
+                tracking = f"1Z{rng.randint(10**8, 10**9 - 1)}"
+            else:  # processing
+                eta = NOW_ANCHOR + timedelta(days=rng.randint(4, 7))
+                tracking = None
+            rows.append(
+                {
+                    "order_id":     f"#{order_seq}",
+                    "customer_id":  customer_id,
+                    "sku":          sku,
+                    "product_name": product_name,
+                    "quantity":     rng.randint(1, 3),
+                    "status":       status,
+                    "order_date":   _ts_iso(order_date),
+                    "eta":          _ts_iso(eta) if eta else None,
+                    "tracking_no":  tracking,
+                }
+            )
+            order_seq += 1
+    return rows
+
+
 def _gen_conversations(rng: random.Random) -> list[dict]:
     """Return list of conversation dicts. Order matters: callers pair index 0
     with the first 8 trace events."""
@@ -540,12 +601,13 @@ def main() -> int:
         client,
         project_id,
         dataset,
-        ["conversations", "conversation_traces", "customers_context", "eval_runs"],
+        ["conversations", "conversation_traces", "customers_context", "orders", "eval_runs"],
     )
 
     rng = random.Random(SEED_RNG_SEED)
 
     customers = _gen_customers()
+    orders = _gen_orders(rng)
     conversations = _gen_conversations(rng)
     trace_events: list[dict] = []
     for conv in conversations:
@@ -554,12 +616,13 @@ def main() -> int:
 
     fq = lambda t: f"{project_id}.{dataset}.{t}"  # noqa: E731 -- short-lived helper
     _insert(client, fq("customers_context"),    customers)
+    _insert(client, fq("orders"),               orders)
     _insert(client, fq("conversations"),        conversations)
     _insert(client, fq("conversation_traces"),  trace_events)
     _insert(client, fq("eval_runs"),            eval_runs)
 
     log.info("row counts:")
-    for t in ("customers_context", "conversations", "conversation_traces", "eval_runs"):
+    for t in ("customers_context", "orders", "conversations", "conversation_traces", "eval_runs"):
         n = _row_count(client, f"`{fq(t)}`")
         log.info("  %-22s %d", t, n)
 

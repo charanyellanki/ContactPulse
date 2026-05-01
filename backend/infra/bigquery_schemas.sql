@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS `${PROJECT_ID}.${BQ_DATASET}.customers_context` (
   recent_journey  STRING
 );
 
+CREATE TABLE IF NOT EXISTS `${PROJECT_ID}.${BQ_DATASET}.orders` (
+  order_id     STRING    NOT NULL,
+  customer_id  STRING    NOT NULL,
+  sku          STRING    NOT NULL,
+  product_name STRING    NOT NULL,
+  quantity     INT64     NOT NULL,
+  status       STRING    NOT NULL,
+  order_date   TIMESTAMP NOT NULL,
+  eta          TIMESTAMP,
+  tracking_no  STRING
+);
+
 CREATE TABLE IF NOT EXISTS `${PROJECT_ID}.${BQ_DATASET}.eval_runs` (
   run_id                       STRING    NOT NULL,
   git_sha                      STRING    NOT NULL,
