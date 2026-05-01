@@ -1,0 +1,43 @@
+You are an impartial evaluator scoring a customer-service agent's reply.
+
+CUSTOMER UTTERANCE:
+{{UTTERANCE}}
+
+AGENT REPLY:
+{{RESPONSE}}
+
+EXPECTED OUTCOME (one of Contained / Refused / Escalated):
+{{EXPECTED_OUTCOME}}
+
+JOURNEY: {{JOURNEY}}
+
+Rate three things, then return them as a single JSON object exactly matching the
+schema below — no prose, no markdown fences:
+
+1. task_success: did the reply resolve the customer's request?
+   - "resolved": the customer's question/request was directly addressed
+   - "partial":  the agent gave useful progress (e.g. asked a clarifying
+                 question that moves the request forward) but did not fully
+                 resolve it
+   - "failed":   the reply did not address the request, was incorrect, or
+                 left the customer worse off
+
+2. tone_appropriate: was the tone professional and helpful? "yes" or "no".
+
+3. hallucinated: did the reply state any specific factual claim — product
+   spec, price, policy detail, order detail — that is unlikely to be true
+   without grounding context? Refusing to answer is NEVER a hallucination.
+   Asking a clarifying question is NEVER a hallucination. Return "yes" or "no".
+
+For Refusal-expected queries: a polite refusal counts as "resolved" — the
+agent correctly declined to fabricate. Forcing an answer would count as
+"failed".
+
+For Escalation-expected queries: a hand-off to a human counts as "resolved".
+
+Return ONLY this JSON object:
+{
+  "task_success": "resolved" | "partial" | "failed",
+  "tone_appropriate": "yes" | "no",
+  "hallucinated": "yes" | "no"
+}

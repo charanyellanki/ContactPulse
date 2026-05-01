@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     gcp_region: str = "us-central1"
     bq_dataset: str = "contactpulse"
     gcs_bucket: str = "contactpulse-audio"
+    gcs_evals_bucket: str = "contactpulse-evals"
 
     # Models — gemini-2.5 family (2.0 IDs were not yet GA on this project at
     # bootstrap time). 2.5-pro is a "thinking" model: it burns ~150-300

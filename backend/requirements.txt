@@ -10,3 +10,5 @@ google-cloud-storage>=2.14.0
 google-cloud-dlp>=3.16.0
 google-cloud-aiplatform>=1.43.0
 vertexai>=1.43.0
+
+tqdm>=4.66.0
