@@ -45,6 +45,19 @@ class Settings(BaseSettings):
     # DLP
     dlp_enabled: bool = True
 
+    # Voice — STT v2
+    stt_location: str = "global"
+    stt_model: str = "chirp"
+    stt_language_code: str = "en-US"
+
+    # Voice — TTS v1
+    tts_voice_name: str = "en-US-Neural2-F"
+    tts_language_code: str = "en-US"
+    tts_speaking_rate: float = 1.0
+
+    # Voice — request limits
+    voice_max_audio_bytes: int = 5_000_000  # ~30s at 128kbps mp3 / ~10s WAV 16k
+
     # Runtime
     environment: str = "development"
     api_version: str = "0.1.0"

@@ -1,10 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, AlertTriangle } from "lucide-react";
 import { useUiStore } from "@/store/ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { generateTraceId } from "@/lib/traceId";
+import {
+  postAgentTurn,
+  postAgentVoice,
+  type AgentTurnHistoryItem,
+} from "@/api/agent";
 import { ModalityToggle } from "./ModalityToggle";
 import { CustomerSelector } from "./CustomerSelector";
 import { Transcript } from "./Transcript";
@@ -17,25 +22,88 @@ interface Turn {
   timestamp: string;
 }
 
+function playBase64Audio(audio_base64: string, mime: string): void {
+  const audio = new Audio(`data:${mime};base64,${audio_base64}`);
+  void audio.play().catch(() => {
+    // Autoplay can be blocked until the first user gesture; for push-to-talk
+    // the gesture has already happened, but we still don't want to throw.
+  });
+}
+
 export function CustomerExperience() {
   const modality = useUiStore((s) => s.modality);
+  const customerId = useUiStore((s) => s.selectedCustomerId);
   const [traceId] = useState(() => generateTraceId());
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const turnsRef = useRef<Turn[]>([]);
+  turnsRef.current = turns;
 
-  const send = (text: string) => {
+  const buildHistory = (): AgentTurnHistoryItem[] =>
+    turnsRef.current.map((t) => ({
+      role: t.role === "agent" ? "agent" : "customer",
+      text: t.text,
+    }));
+
+  const append = (turn: Turn) =>
+    setTurns((prev) => [...prev, turn]);
+
+  const sendChat = async (text: string) => {
+    if (busy) return;
+    setError(null);
     const now = new Date().toISOString();
-    setTurns((prev) => [
-      ...prev,
-      { role: "customer", text, timestamp: now },
-      {
+    append({ role: "customer", text, timestamp: now });
+    setBusy(true);
+    try {
+      const resp = await postAgentTurn({
+        trace_id: traceId,
+        customer_id: customerId,
+        utterance: text,
+        modality: "chat",
+        history: buildHistory(),
+      });
+      append({
         role: "agent",
-        text:
-          "(scaffold) Backend not wired yet — this is the frontend skeleton from CLAUDE.md §2 step 1. The Operator Console drill-down for trace " +
-          traceId +
-          " will populate once the FastAPI service is in place.",
-        timestamp: new Date(Date.now() + 600).toISOString(),
-      },
-    ]);
+        text: resp.response_text,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendVoice = async (audioBase64: string, mime: string) => {
+    if (busy) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const resp = await postAgentVoice({
+        trace_id: traceId,
+        customer_id: customerId,
+        audio_base64: audioBase64,
+        history: buildHistory(),
+      });
+      const ts = new Date().toISOString();
+      append({ role: "customer", text: resp.utterance, timestamp: ts });
+      append({
+        role: "agent",
+        text: resp.response_text,
+        timestamp: new Date().toISOString(),
+      });
+      playBase64Audio(resp.audio_base64, resp.audio_mime);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      // Avoid the unused-var warning for `mime` while keeping the signature
+      // future-proof if we ever forward the recorded mime to the backend.
+      void mime;
+    } finally {
+      setBusy(false);
+    }
   };
 
   const subtitle = useMemo(
@@ -73,14 +141,24 @@ export function CustomerExperience() {
           </CardHeader>
           <CardContent className="space-y-4">
             <Transcript turns={turns} />
+            {error && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>{error}</span>
+              </div>
+            )}
             {modality === "chat" ? (
-              <ChatInput onSend={send} />
+              <ChatInput disabled={busy} onSend={sendChat} />
             ) : (
               <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
                 <div className="text-sm text-muted-foreground">
                   Press and hold the mic to capture an utterance.
                 </div>
-                <PushToTalk onUtterance={send} />
+                <PushToTalk
+                  busy={busy}
+                  onAudio={sendVoice}
+                  onError={setError}
+                />
               </div>
             )}
           </CardContent>
