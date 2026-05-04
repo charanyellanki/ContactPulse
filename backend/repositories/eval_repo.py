@@ -45,57 +45,77 @@ def _ts(value: object) -> str:
     return str(value)
 
 
+def _f(value: object) -> float | None:
+    """BQ NULL → Python None; otherwise float()."""
+    return None if value is None else float(value)
+
+
+def _i(value: object) -> int | None:
+    return None if value is None else int(value)
+
+
 def _row_to_summary(row: bigquery.Row) -> EvalRunSummary:
     metrics = EvalRunPrimaryMetrics(
         containment=float(row["containment_rate"]),
-        refusal_precision=float(row["refusal_precision"]),
-        intent_accuracy=float(row["intent_accuracy"]),
-        retrieval_hit_rate_at_5=float(row["retrieval_hit_rate"]),
-        hallucination_rate_post_verifier=float(row["hallucination_rate"]),
-        latency_p95_ms=int(row["latency_p95_ms"]),
-        cost_per_call_usd=float(row["cost_per_call_usd"]),
+        refusal_precision=_f(row["refusal_precision"]),
+        intent_accuracy=_f(row["intent_accuracy"]),
+        retrieval_hit_rate_at_5=_f(row["retrieval_hit_rate"]),
+        hallucination_rate_post_verifier=_f(row["hallucination_rate"]),
+        latency_p95_ms=_i(row["latency_p95_ms"]),
+        cost_per_call_usd=_f(row["cost_per_call_usd"]),
     )
+    source = row["source"] if "source" in row.keys() else None
+    sample_size = row["sample_size"] if "sample_size" in row.keys() else None
+    sample_modality = row["sample_modality"] if "sample_modality" in row.keys() else None
     return EvalRunSummary(
         run_id=row["run_id"],
         run_timestamp=_ts(row["created_at"]),
         git_sha=row["git_sha"],
         config_hash=_DEFAULT_CONFIG_HASH,
-        total_queries=_DEFAULT_TOTAL_QUERIES,
+        # Production rows carry the actual sampled count; golden rows fall
+        # back to the test-set size.
+        total_queries=int(sample_size) if sample_size is not None else _DEFAULT_TOTAL_QUERIES,
+        source=source if source in ("golden", "production") else "golden",
+        sample_modality=sample_modality if sample_modality in ("voice", "chat", "all") else None,
         primary_metrics=metrics,
     )
 
 
 def _expand_to_detail(row: bigquery.Row, summary: EvalRunSummary) -> EvalRunDetail:
-    per_journey: list[EvalRunPerJourney] = [
-        EvalRunPerJourney(
-            journey="order_status",
-            task_success=float(row["task_success_order_status"]),
-            query_count=int(round(summary.total_queries * _PER_JOURNEY_QUERY_SHARES["order_status"])),
-        ),
-        EvalRunPerJourney(
-            journey="product_qa",
-            task_success=float(row["task_success_product_qa"]),
-            query_count=int(round(summary.total_queries * _PER_JOURNEY_QUERY_SHARES["product_qa"])),
-        ),
-        EvalRunPerJourney(
-            journey="service_request",
-            task_success=float(row["task_success_service_request"]),
-            query_count=int(round(summary.total_queries * _PER_JOURNEY_QUERY_SHARES["service_request"])),
-        ),
-    ]
+    per_journey: list[EvalRunPerJourney] = []
+    for journey, col in (
+        ("order_status",    "task_success_order_status"),
+        ("product_qa",      "task_success_product_qa"),
+        ("service_request", "task_success_service_request"),
+    ):
+        v = row[col]
+        if v is None:
+            # Production runs may have zero conversations of a given journey
+            # in the sample; skip rather than fabricate a 0.0.
+            continue
+        per_journey.append(
+            EvalRunPerJourney(
+                journey=journey,        # type: ignore[arg-type]
+                task_success=float(v),
+                query_count=int(round(summary.total_queries * _PER_JOURNEY_QUERY_SHARES[journey])),
+            )
+        )
 
     pm = summary.primary_metrics
     long_rows: list[EvalRunMetricRow] = []
-    flat_metrics: list[tuple[str, float]] = [
+    flat_metrics: list[tuple[str, float | None]] = [
         ("containment", pm.containment),
         ("refusal_precision", pm.refusal_precision),
         ("intent_accuracy", pm.intent_accuracy),
         ("retrieval_hit_rate_at_5", pm.retrieval_hit_rate_at_5),
         ("hallucination_rate_post_verifier", pm.hallucination_rate_post_verifier),
-        ("latency_p95_ms", float(pm.latency_p95_ms)),
+        ("latency_p95_ms", float(pm.latency_p95_ms) if pm.latency_p95_ms is not None else None),
         ("cost_per_call_usd", pm.cost_per_call_usd),
     ]
     for metric_name, value in flat_metrics:
+        if value is None:
+            continue            # production rows omit label-dependent metrics
+
         long_rows.append(
             EvalRunMetricRow(
                 run_id=summary.run_id,

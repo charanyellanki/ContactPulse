@@ -11,14 +11,19 @@
  * lives in memory; the backend is the source of truth for anything durable.
  */
 import { create } from "zustand";
-import type { Modality } from "@/api/types";
+import type { ChannelFilter, CxModality } from "@/api/types";
 
 interface UiState {
   // Customer Experience
-  modality: Modality;
+  modality: CxModality;
   selectedCustomerId: string | null; // null = anonymous
-  setModality: (m: Modality) => void;
+  setModality: (m: CxModality) => void;
   setSelectedCustomer: (id: string | null) => void;
+
+  // Operator Console — page-level voice/chat/all filter.
+  // Defaults to "voice" — the role this demo is targeted at owns voice agents.
+  ocChannelFilter: ChannelFilter;
+  setOcChannelFilter: (f: ChannelFilter) => void;
 
   // Operator Console — Trace Drill-Down
   selectedTraceId: string | null;
@@ -30,10 +35,16 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>((set) => ({
-  modality: "chat",
+  // Voice is the default for the Customer Experience surface. "Voice" is
+  // realtime Gemini Live (WebSocket); push-to-talk has been removed.
+  // Chat remains for fallback, debugging, and eval parity.
+  modality: "voice",
   selectedCustomerId: null,
   setModality: (modality) => set({ modality }),
   setSelectedCustomer: (selectedCustomerId) => set({ selectedCustomerId }),
+
+  ocChannelFilter: "voice",
+  setOcChannelFilter: (ocChannelFilter) => set({ ocChannelFilter }),
 
   selectedTraceId: null,
   expandedEventKeys: new Set<string>(),

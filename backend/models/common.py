@@ -6,6 +6,9 @@ from typing import Literal
 LoyaltyTier = Literal["bronze", "silver", "gold"]
 DisplayTier = Literal["bronze", "silver", "gold", "anonymous"]
 Modality = Literal["voice", "chat"]
+# Cluster modality scope: "voice" / "chat" / "both" — cluster impact across
+# channels is not always exclusive; "both" surfaces in either filter view.
+ClusterModality = Literal["voice", "chat", "both"]
 Journey = Literal[
     "order_status",
     "product_qa",

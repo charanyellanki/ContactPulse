@@ -497,15 +497,27 @@ def _gen_trace_events(rng: random.Random, conv: dict) -> list[dict]:
 
 
 def _gen_eval_runs() -> list[dict]:
-    """3 runs spaced 7 days ago, 3 days ago, today, with the metric values
-    specified in the task."""
+    """Three SYNTHETIC seed rows so the Operator Console's Eval Runs view has
+    something to render before the first real eval has been executed.
+
+    Every field that would identify a "real" run is deliberately tagged so a
+    reader cannot mistake these for measured numbers:
+      - run_id is `evr_seed_<n>` (no `_run_`)
+      - git_sha is the literal string `seed-synthetic`
+      - the values are placeholders that loosely walk toward the SPEC §8 targets
+
+    The first real eval run (`python -m backend.evals.eval_runner`) writes a
+    proper `evr_<timestamp>_<uuid>` row with the actual git SHA and measured
+    metrics, which is what the README links to ("see contactpulse.eval_runs
+    for the latest run").
+    """
     def _at(days_ago: int) -> str:
         return _ts_iso(NOW_ANCHOR - timedelta(days=days_ago))
 
     return [
         {
-            "run_id":                       "evr_run_1",
-            "git_sha":                      "a1b2c3d",
+            "run_id":                       "evr_seed_1",
+            "git_sha":                      "seed-synthetic",
             "created_at":                   _at(7),
             "containment_rate":             0.71,
             "refusal_precision":            0.88,
@@ -520,8 +532,8 @@ def _gen_eval_runs() -> list[dict]:
             "cost_per_call_usd":            0.00148,
         },
         {
-            "run_id":                       "evr_run_2",
-            "git_sha":                      "9e7d1f2",
+            "run_id":                       "evr_seed_2",
+            "git_sha":                      "seed-synthetic",
             "created_at":                   _at(3),
             "containment_rate":             0.76,
             "refusal_precision":            0.91,
@@ -536,8 +548,8 @@ def _gen_eval_runs() -> list[dict]:
             "cost_per_call_usd":            0.00142,
         },
         {
-            "run_id":                       "evr_run_3",
-            "git_sha":                      "c8f0d44",
+            "run_id":                       "evr_seed_3",
+            "git_sha":                      "seed-synthetic",
             "created_at":                   _at(0),
             "containment_rate":             0.82,
             "refusal_precision":            0.94,

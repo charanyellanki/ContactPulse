@@ -57,15 +57,23 @@ CREATE TABLE IF NOT EXISTS `${PROJECT_ID}.${BQ_DATASET}.eval_runs` (
   run_id                       STRING    NOT NULL,
   git_sha                      STRING    NOT NULL,
   created_at                   TIMESTAMP NOT NULL,
+  -- Eval source classifier — 'golden' = labeled test set (intent/retrieval/
+  -- refusal-precision available); 'production' = sampled from live
+  -- conversations (no ground truth, label-dependent metrics are NULL).
+  source                       STRING,
+  sample_size                  INT64,
+  sample_modality              STRING,
+  -- Label-dependent metrics: NULL on production rows by design.
+  refusal_precision            FLOAT64,
+  intent_accuracy              FLOAT64,
+  retrieval_hit_rate           FLOAT64,
+  -- Telemetry-derived metrics: populated for both sources.
   containment_rate             FLOAT64   NOT NULL,
-  refusal_precision            FLOAT64   NOT NULL,
-  task_success_order_status    FLOAT64   NOT NULL,
-  task_success_product_qa      FLOAT64   NOT NULL,
-  task_success_service_request FLOAT64   NOT NULL,
-  intent_accuracy              FLOAT64   NOT NULL,
-  retrieval_hit_rate           FLOAT64   NOT NULL,
-  hallucination_rate           FLOAT64   NOT NULL,
-  latency_p50_ms               INT64     NOT NULL,
-  latency_p95_ms               INT64     NOT NULL,
-  cost_per_call_usd            FLOAT64   NOT NULL
+  task_success_order_status    FLOAT64,
+  task_success_product_qa      FLOAT64,
+  task_success_service_request FLOAT64,
+  hallucination_rate           FLOAT64,
+  latency_p50_ms               INT64,
+  latency_p95_ms               INT64,
+  cost_per_call_usd            FLOAT64
 );

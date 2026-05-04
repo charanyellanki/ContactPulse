@@ -213,13 +213,16 @@ export const evalRunMetricRowSchema = z.object({
 
 export const evalRunPrimaryMetricsSchema = z.object({
   containment: z.number(),
-  refusal_precision: z.number(),
-  intent_accuracy: z.number(),
-  retrieval_hit_rate_at_5: z.number(),
-  hallucination_rate_post_verifier: z.number(),
-  latency_p95_ms: z.number(),
-  cost_per_call_usd: z.number(),
+  refusal_precision: z.number().nullable(),
+  intent_accuracy: z.number().nullable(),
+  retrieval_hit_rate_at_5: z.number().nullable(),
+  hallucination_rate_post_verifier: z.number().nullable(),
+  latency_p95_ms: z.number().nullable(),
+  cost_per_call_usd: z.number().nullable(),
 });
+
+export const evalRunSourceSchema = z.enum(["golden", "production"]);
+export const sampleModalitySchema = z.enum(["voice", "chat", "all"]);
 
 export const evalRunPerJourneySchema = z.object({
   journey: journeySchema,
@@ -233,6 +236,8 @@ export const evalRunSummarySchema = z.object({
   git_sha: z.string(),
   config_hash: z.string(),
   total_queries: z.number().int(),
+  source: evalRunSourceSchema.default("golden"),
+  sample_modality: sampleModalitySchema.nullable().default(null),
   primary_metrics: evalRunPrimaryMetricsSchema,
 });
 
@@ -254,10 +259,13 @@ export const failureTypeSchema = z.enum([
   "tool_error",
 ]);
 
+export const clusterModalitySchema = z.enum(["voice", "chat", "both"]);
+
 export const errorClusterSchema = z.object({
   cluster_id: z.string(),
   label: z.string(),
   failure_type: failureTypeSchema,
+  modality: clusterModalitySchema.default("both"),
   count: z.number().int(),
   description: z.string(),
   sample_trace_ids: z.array(z.string()),

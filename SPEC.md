@@ -1,8 +1,22 @@
 # ContactPulse — Product Specification
 
-> **Status:** v1.1 — MVP scope, weekend build (2-3 days)
+> **Status:** v1.3 — MVP scope, production-shaped backend
 > **Owner:** Charan Yellanki
 > **Last updated:** May 2026
+>
+> **v1.3 changes:**
+> - Orchestration is now **Google Vertex AI Agent Development Kit (ADK), end-to-end.** The agent system is an ADK **agent hierarchy** (root coordinator + per-journey sub-agents + tools), not a hand-rolled dispatch and not a third-party graph framework. ADK is the runtime, the agent definition layer, and the observability surface. LangGraph is removed from the design.
+> - Rationale: ADK is GCP-native, deeply integrated with Vertex AI / Gemini 2.5 / Vertex AI Search, supports the **A2A (Agent-to-Agent) protocol** for cross-agent handoffs, and aligns with the production stack large retailers are deploying for contact-center AI in 2026. For a GCP-targeted portfolio project, ADK is the strategic choice.
+> - **Industry-standard data layer.** All conversation records (call/chat transcripts, agent decisions, tool calls, eval outcomes) land in **BigQuery** as the single source of truth — the same shape a production deployment would feed into **Vertex AI Conversational Insights** (formerly Contact Center AI Insights). The Operator Console is an in-app slice of that surface; we deliberately avoid third-party observability tools (e.g., LangSmith) so the trace surface, the eval surface, and the analytics surface all read from one place.
+> - **Predictability over autonomy.** The agent flow is policy-driven: confidence-gated routing, bounded grounding-retry, explicit escalation. We deliberately do not market this as "autonomous" — predictability is what makes the eval harness's pass/fail signal meaningful and what a CX/compliance team will actually accept.
+> - **Vertex AI Search engine creation is script-managed**, not Terraform-managed (`scripts/index_kb.py`). The static plane (BQ, Cloud Run, IAM, GCS, Secret Manager, DLP) is Terraform-managed. The split is deliberate — Search engine + datastore Terraform support is uneven, and a one-shot script is the honest choice for the MVP timeline.
+> - **ADK is pinned** to a specific minor version in `requirements.txt` (no `>=`). Bumping ADK requires re-running the smoke eval before merge.
+> - **No Azure portability claim.** The orchestration stack (ADK) is GCP-only by design; the project is committed to that surface end-to-end.
+>
+> **v1.2 changes:**
+> - Backend is **fully GCP-native**, with **all** GCP resources (BigQuery, Cloud Run, Vertex AI Search, GCS, IAM, Cloud DLP, Secret Manager) created and managed by **Terraform**. The `infra/terraform/` tree is the only sanctioned way to mutate cloud state.
+> - **Retrieval** uses **Vertex AI Search** with a **hybrid (semantic + keyword) retriever, Reciprocal Rank Fusion, and a cross-encoder reranker**. The hardcoded in-memory KB is removed.
+> - The system is positioned as a **production-grade AI contact center pattern** (voice + text), not a portfolio toy: the agent detects intent, retrieves the right evidence, drives the customer toward goal completion, and escalates when it cannot.
 >
 > **v1.1 changes:** Renamed from HomeVoice → ContactPulse. Added two-surface architecture (Customer Experience + Operator Console). Added chat as a secondary modality alongside voice.
 
@@ -10,11 +24,13 @@
 
 ## 1. Summary
 
-ContactPulse is a **measurement and improvement framework for production conversational AI agents** in retail customer experience (CX), built on Google Cloud. A voice- and chat-capable multi-agent assistant for home improvement retail acts as the workload; the system's primary value is the rigorous evaluation, observability, and error-analysis layer that surrounds it.
+ContactPulse is a **measurement and improvement framework for production conversational AI agents** in retail customer experience (CX), built on Google Cloud. A voice- and chat-capable **multi-agent assistant built on Vertex AI Agent Development Kit (ADK)** — a root coordinator agent that delegates to per-journey sub-agents, with shared tools for retrieval, customer context, and escalation — acts as the workload; the system's primary value is the rigorous evaluation, observability, and error-analysis layer that surrounds it.
 
 The agent exists to give the eval harness something to measure. **The eval harness is the hero.**
 
 ContactPulse exposes two surfaces in one application: a **Customer Experience** view (what a caller sees — voice or chat) and an **Operator Console** view (what a CX data scientist sees — live conversations, traces, eval results, error analysis, business readout). Both surfaces share one backend, one data layer, and one set of trace IDs.
+
+The backend is **GCP-native and Terraform-managed** end-to-end. Every cloud resource (BigQuery dataset, Cloud Run service, Vertex AI Search engine + datastore, GCS buckets, IAM bindings, DLP templates, Secret Manager entries) is declared in `infra/terraform/` and created, mutated, and torn down through `terraform apply` / `terraform destroy`. Out-of-band `gcloud` mutations are explicitly disallowed.
 
 ---
 
@@ -28,7 +44,7 @@ Most teams ship the agent first and instrument it second. ContactPulse inverts t
 
 ## 3. Goals
 
-**G1.** Demonstrate a voice- and chat-capable multi-agent CX assistant on Google Cloud, using the same stack production retail teams are deploying (Vertex AI / Gemini 2.0 / Vertex AI Search / BigQuery).
+**G1.** Demonstrate a voice- and chat-capable multi-agent CX assistant on Google Cloud, using the same stack production retail teams are deploying in 2026 (**Vertex AI ADK / Gemini 2.5 / Vertex AI Search with hybrid retrieval, RRF and cross-encoder reranker / BigQuery / Cloud Run, all Terraform-managed**). The agent detects intent, retrieves grounded evidence, drives toward goal completion across multiple turns, and escalates when it cannot.
 
 **G2.** Build a rigorous evaluation harness measuring intent accuracy, retrieval quality, response groundedness, refusal precision, containment, task success by journey, latency, and cost-per-call.
 
@@ -36,13 +52,15 @@ Most teams ship the agent first and instrument it second. ContactPulse inverts t
 
 **G4.** Produce an error-analysis notebook surfacing systematic failure modes (intent misroutes, retrieval gaps, escalation errors), translated into a business readout for non-technical stakeholders.
 
-**G5.** Make the system production-shaped from day one: 12-factor configuration, structured logging, distributed tracing, automated tests, CI/CD, and operational runbooks.
+**G5.** Make the system production-shaped from day one: **all infrastructure as code via Terraform**, 12-factor configuration, structured logging, distributed tracing, automated tests, CI/CD, and operational runbooks.
 
 **G6.** Expose an **Operator Console** UI surfacing per-conversation traces, eval runs, error clusters, and a business readout — the tooling a CX data scientist would actually use.
 
+**G7.** Implement orchestration as a **Vertex AI ADK agent hierarchy**, so the agent flow (intent routing → specialist sub-agent → tool calls → synthesis → grounding verification → escalation) is expressed as ADK agents, sub-agents, and tools rather than hand-rolled Python dispatch. The chat pipeline and the voice pipeline share business logic by registering the same tools (over the same repositories) on the chat agent hierarchy and on the Gemini Live session — voice never reimplements an intent. Cross-agent handoffs use ADK's native delegation; the design is forward-compatible with the **A2A (Agent-to-Agent) protocol** for adding specialist agents later (e.g., a "DIY project advisor" or "installation cost estimator") without touching the coordinator.
+
 ### Non-Goals
 
-**NG1.** Real-time low-latency streaming voice with barge-in. Push-to-talk is sufficient for the MVP.
+**NG1 (revised in v1.4).** **Telephony.** The web demo includes a real-time, low-latency, barge-in-capable voice mode via the **Gemini Live API on Vertex AI** (`/agent/voice/live` WebSocket); chat is the only other modality. Push-to-talk has been removed. **Phone-number support (PSTN/SIP via Twilio Media Streams or Dialogflow CX) is still out of scope** — the voice surface is browser-only. Adding telephony is documented as the next-step Twilio bridge in front of the same WebSocket. *(Original NG1: "real-time streaming voice with barge-in" — superseded by v1.4.)*
 **NG2.** Multi-language support. English only.
 **NG3.** Long-running session memory across calls. Each conversation is independent.
 **NG4.** Fine-tuning. Use base Gemini models with prompt engineering and grounding.
@@ -69,15 +87,15 @@ Each concept has a name, a one-sentence purpose, and a brief operational princip
 
 ### 5.1 Conversation
 **Purpose:** Maintain a coherent multi-turn dialogue with a customer across one call, in either voice or chat modality.
-**Operational principle:** When a customer initiates a conversation (voice or chat), a `Conversation` is created with a unique trace ID. Modality is recorded but does not affect the agent pipeline downstream — voice goes through STT first; chat skips it. Every input, action, and output during the conversation is associated with the trace ID and persisted to BigQuery.
+**Operational principle:** When a customer initiates a conversation (voice or chat), a `Conversation` is created with a unique trace ID. Voice runs as a single Gemini Live WebSocket session for the call's lifetime; chat is per-turn. The trace ID is the unifying primitive across both — every input, action, and output is associated with it and persisted to BigQuery.
 
 ### 5.2 IntentRouting
-**Purpose:** Classify a customer utterance into one of the supported journeys and dispatch to the appropriate specialist agent.
-**Operational principle:** A router agent receives the utterance, conversation history, and customer context. It returns one of `{order_status, product_qa, service_request, escalate, out_of_scope}` with a confidence score. If confidence is below a configurable threshold, the conversation escalates rather than guessing.
+**Purpose:** Classify a customer utterance into one of the supported journeys and dispatch to the appropriate specialist sub-agent.
+**Operational principle:** Routing is performed by the **root ADK `LlmAgent` (coordinator)** acting on the utterance, conversation history, and customer context. The coordinator's instructions enumerate `{order_status, product_qa, service_request, escalate, out_of_scope}` and the registered `sub_agents`; ADK's native delegation hands control to the matching sub-agent. A confidence value is captured in `Session.state` via a `before_model` callback; an `after_model` callback on the coordinator enforces the confidence gate — below threshold, control transfers to the `escalation_agent` instead of a journey specialist.
 
 ### 5.3 Retrieval
 **Purpose:** Surface evidence from a knowledge base relevant to a customer query.
-**Operational principle:** Given a query, the retriever runs a hybrid search (semantic + keyword) over the indexed KB, fuses results via Reciprocal Rank Fusion, and reranks the top-k with a cross-encoder. Returns ranked passages with citations the synthesizer must use.
+**Operational principle:** The `hybrid_search` **ADK tool** calls **Vertex AI Search** for both **semantic** and **keyword (BM25-style)** lookups against the product + policy datastore. Result lists are fused via **Reciprocal Rank Fusion (RRF)** and the top-k is reranked with a **cross-encoder reranker** (Vertex AI ranking API; Gemini-Flash judge as fallback). The tool returns ranked passages with explicit `passage_id` and source URI; ADK persists the result on `Session.state.retrieved_passages` so downstream agents (synthesis, verification) read from the same list. The product/policy specialist sub-agent's instructions MUST cite these `passage_id`s; the grounding verifier consumes the same passage list when scoring. Vertex AI Search index, datastore, and serving config are Terraform-managed resources.
 
 ### 5.4 CustomerContext
 **Purpose:** Inject caller-specific information (orders, loyalty status, prior contacts) into the agent's working context.
@@ -108,16 +126,20 @@ ContactPulse is a single web application with two views, sharing one backend, on
 ### 6.1 Customer Experience (the workload)
 The view a caller would see.
 
-- **Modality toggle** — voice (push-to-talk) or chat (text input). Defaults to voice. Both modalities use the same backend agent pipeline.
-- **Conversation pane** — live transcript, agent responses, optional audio playback.
+- **Modality selector** — two modes:
+  - **Voice** (default for the demo) — always-on, conversational voice via the Gemini Live API. Streams 16 kHz PCM up, plays 24 kHz PCM down, supports barge-in. Maps to a single FastAPI WebSocket (`/agent/voice/live`).
+  - **Chat** — text in, text out. The fastest path; every eval-as-test query is chat.
+- **Conversation pane** — live transcript (assistant turns are streamed in Live mode), audio playback for batched modes, status pill ("listening" / "speaking" / "thinking" / "idle").
 - **Mock customer selector** — dropdown to "log in" as one of N synthetic customers (or anonymous).
-- **Trace ID footer** — small link that opens the Operator Console pre-loaded with this conversation's trace.
+- **Trace ID footer** — small link that opens the Operator Console pre-loaded with this conversation's trace. Live conversations land in the same `conversation_traces` table — different `event_type` values (`live_*`), same `trace_id` primitive.
 
 ### 6.2 Operator Console (the hero)
-The view a CX data scientist would actually use. Five sub-views:
+The view a CX data scientist would actually use. In production at a large retailer, this surface is typically **Vertex AI Conversational Insights** reading from a BigQuery export of call/chat records. ContactPulse's Operator Console is a slimmer in-app version of the same pattern, built on the same BigQuery tables, so the design transfers cleanly to a Conversational Insights deployment without restructuring the data layer.
+
+Five sub-views:
 
 - **Live Conversations** — list of recent conversations with intent, journey, outcome, latency, cost. Click → trace drill-down.
-- **Trace Drill-Down** — for a single conversation: STT output → router decision (intent + confidence) → retrieval results (passages + scores) → synthesizer output → grounding verifier verdict → TTS. Each step expandable.
+- **Trace Drill-Down** — for a single conversation: per-turn user transcript → router decision (intent + confidence, chat) **or** Live tool calls (voice) → retrieval results (passages + scores) → synthesizer output → grounding verifier verdict → assistant response. Each step expandable.
 - **Eval Runs** — table of recent eval runs with `git_sha`, primary metrics, trend sparklines. Click → full breakdown.
 - **Error Analysis** — clusters of failed conversations grouped by failure type. Click cluster → sample five conversations.
 - **Business Readout** — embedded Looker Studio iframe + commentary blocks translating tech metrics to CX outcomes ("at retailer call volume of N million/year, our containment rate of X% would displace ~$Y in associate handle time").
@@ -195,20 +217,37 @@ These exist to make the eval harness produce meaningful pass/fail signal during 
 
 ## 9. In Scope (MVP)
 
+**Orchestration (the new core) — Vertex AI ADK agent hierarchy:**
+- Top level: a **`SequentialAgent`** wrapping `pre_processing_agent` → `coordinator_agent` → `post_processing_agent`.
+- **`pre_processing_agent`** runs the `dlp_redact` and `customer_context_lookup` tools and writes results to `Session.state` before any LLM-driven routing.
+- **`coordinator_agent`** is an **`LlmAgent`** (Gemini 2.5 Flash) whose `sub_agents` list registers `order_status_agent`, `product_qa_agent`, `service_request_agent`, and `escalation_agent`. ADK's native delegation handles the route based on intent + confidence. The `out_of_scope` path responds with a refusal directly from the coordinator.
+- **Specialist sub-agents** are `LlmAgent`s, each with their own tool list:
+  - `order_status_agent` — tools: `lookup_recent_orders`, `lookup_order_by_id` (BigQuery).
+  - `product_qa_agent` — tools: `hybrid_search` (Vertex AI Search + RRF + reranker).
+  - `service_request_agent` — tools: `extract_slots`, `confirm_appointment` (multi-turn slot-filling driven by ADK's session state).
+- **`post_processing_agent`** runs the **grounding verifier** as a tool + an `after_agent` callback. On `not grounded`, it triggers a single retry with a stricter system instruction; on second fail, it transfers control to `escalation_agent`.
+- **ADK `Callbacks`** are the trace surface: `before_agent`, `after_agent`, `before_tool`, `after_tool`, `before_model`, `after_model` each emit one structured event keyed by `Session.id` (the trace ID) into BigQuery.
+- **Chat and voice share tool semantics.** Chat goes through the per-turn pipeline (`POST /agent/turn`). Voice is realtime via Gemini Live over `WS /agent/voice/live`; Live's tool registry wraps the same repositories the chat pipeline uses, so both surfaces look up the same orders, search the same KB, and write to the same trace table. The pipelines diverge in shape (per-turn vs. streaming) but never in business logic.
+- Session state is the canonical channel: `utterance`, `redacted_utterance`, `customer_context`, `intent`, `confidence`, `retrieved_passages`, `draft_response`, `verifier_verdict`, `attempts`, `trace_events`.
+
 **Backend / pipeline:**
-- Voice loop (STT → router → specialist → synthesizer → grounding → TTS)
-- Chat loop (bypasses STT/TTS; same agent pipeline)
-- Three specialist agents (J1, J2, J3) with their tools
-- Hybrid retrieval (RRF + reranker) over synthetic product/policy KB
-- Customer 360 lookups via BigQuery
-- Quote-grounded LLM-as-judge verifier
-- Confidence-gated escalation
-- Eval harness over a labeled test set of ~150 queries
-- Error analysis notebook on ~30 failed conversations
-- Looker Studio dashboard
-- Structured logging, trace IDs, BigQuery event sink
-- Automated tests (unit + integration + eval-as-test)
-- CI/CD via GitHub Actions
+- Three specialist sub-agents (J1, J2, J3) implemented as ADK `LlmAgent`s with per-journey tools. Adding a new journey is a new sub-agent + registration on the coordinator's `sub_agents` list — never a new `if/elif`.
+- **Hybrid retrieval (Vertex AI Search semantic + keyword → RRF → cross-encoder reranker)** exposed as a single `hybrid_search` ADK tool over an indexed synthetic product/policy KB. No hardcoded passages.
+- Customer 360 lookups via BigQuery (loyalty tier, recent orders, prior contacts), invoked from the `customer_context_lookup` tool inside the pre-processing agent.
+- Quote-grounded LLM-as-judge verifier as the `grounding_verify` tool + `after_agent` callback in the post-processing agent — single retry with stricter prompt, then refuse + escalate.
+- Confidence-gated escalation enforced by an `after_model` callback on the coordinator.
+- Eval harness over a labeled test set of ~150 queries.
+- Error analysis notebook on ~30 failed conversations.
+- Looker Studio dashboard.
+- Structured logging, trace IDs, BigQuery event sink — every ADK callback emits one trace event.
+- Automated tests (unit + integration + eval-as-test). ADK exposes a deterministic `Runner` for testing agent runs with mocked tools.
+- CI/CD via GitHub Actions.
+
+**Infrastructure (must be true to call this MVP done):**
+- **The static plane is Terraform-managed** under `infra/terraform/` — modules for `apis`, `iam`, `bigquery`, `gcs`, `cloud_run`, `dlp`, `secret_manager`. State stored in a remote GCS backend.
+- **Vertex AI Search engine + datastore are script-managed** (`scripts/index_kb.py`) — one-shot creation, idempotent re-import, polled to ready. Terraform support for these resources is uneven; the script path is the honest choice for the MVP timeline. Documented as "deferred to Terraform when the provider stabilizes" in `infra/terraform/README.md`.
+- `terraform apply` from a clean project plus `python scripts/index_kb.py` must together produce a working backend; `terraform destroy` plus `python scripts/index_kb.py --teardown` must leave no orphan billable resources.
+- Service accounts and IAM bindings are least-privilege, codified in Terraform — no console clicks.
 
 **Frontend:**
 - Two-view web app (Customer Experience + Operator Console)
@@ -216,7 +255,7 @@ These exist to make the eval harness produce meaningful pass/fail signal during 
 - Operator Console: Live Conversations, Trace Drill-Down, Eval Runs, Error Analysis, Business Readout
 
 **Deployment:**
-- Backend on Cloud Run (`us-central1`, min instances 1 for demo)
+- Backend on Cloud Run (`us-central1`, min instances 1 for demo) — provisioned by Terraform, image rolled by GitHub Actions.
 - Frontend on Vercel
 - Production-style documentation (this file + ARCHITECTURE + RUNBOOK + CLAUDE)
 
@@ -236,6 +275,8 @@ These exist to make the eval harness produce meaningful pass/fail signal during 
 - Production-grade rate limiting and abuse detection
 - Custom domain on Vercel / Cloud Run
 - Authenticated access to Operator Console (open for demo)
+- **Telephony front-end (Twilio Media Streams or Dialogflow CX) as the production voice gateway** — handles SIP/PSTN, with the existing `WS /agent/voice/live` Gemini Live session running unchanged behind the bridge. The MVP is browser-only.
+- **Multi-agent expansion via the A2A (Agent-to-Agent) protocol** — adding specialist agents like a "DIY project advisor" or "installation cost estimator" hosted in separate ADK apps and discovered via A2A, instead of co-located in this service.
 
 ---
 
@@ -273,5 +314,15 @@ These exist to make the eval harness produce meaningful pass/fail signal during 
 | **CSAT proxy** | LLM-as-judge score approximating customer satisfaction. |
 | **Customer Experience (surface)** | Caller-facing view — voice or chat conversation UI. |
 | **Operator Console** | Data-scientist-facing view — traces, evals, errors, readout. |
-| **Modality** | Voice (audio I/O via STT/TTS) or chat (text I/O). The agent pipeline is modality-agnostic. |
+| **Modality** | Voice (realtime audio I/O via Gemini Live) or chat (text I/O via `/agent/turn`). Same business logic, different runtime shape. |
 | **MVP** | Minimum Viable Product — smallest version demonstrating the architecture and producing real eval numbers. |
+| **ADK** | Vertex AI Agent Development Kit — Google's framework for declaring, deploying, and observing multi-agent systems. ContactPulse is an ADK app: a `SequentialAgent` wrapping a coordinator `LlmAgent` with registered sub-agents and tools. |
+| **Coordinator agent** | The root `LlmAgent` whose `sub_agents` list registers the per-journey specialists. Routing happens via ADK's native `transfer_to_agent` delegation, instructed by the coordinator's prompt. |
+| **Sub-agent** | An ADK `LlmAgent` representing one journey (`order_status`, `product_qa`, `service_request`, `escalation`). Sub-agents own their tools and prompts. |
+| **Tool** | A typed, observable function the agent can call. ContactPulse tools include `dlp_redact`, `customer_context_lookup`, `hybrid_search`, `lookup_recent_orders`, `extract_slots`, `grounding_verify`. |
+| **Callback** | An ADK lifecycle hook (`before_agent`, `after_agent`, `before_tool`, `after_tool`, `before_model`, `after_model`). ContactPulse uses callbacks to emit one structured trace event per stage, enforce the confidence gate, and trigger the grounding-retry loop. |
+| **Session.state** | ADK's per-conversation state dictionary; the canonical channel for `utterance`, `customer_context`, `retrieved_passages`, `draft_response`, `verifier_verdict`, `attempts`. The session ID is the trace ID. |
+| **A2A (Agent-to-Agent) protocol** | An open, ADK-native protocol for cross-agent discovery and handoff across separate ADK apps. ContactPulse is forward-compatible with A2A; current sub-agents are co-located. |
+| **Hybrid retrieval** | Two retrieval calls (semantic + keyword) against Vertex AI Search, fused with Reciprocal Rank Fusion, then reranked with a cross-encoder. |
+| **Terraform-managed** | The resource is created and mutated only via `infra/terraform/`. Manual `gcloud` changes are drift and must be reverted, not codified. |
+| **Dialogflow CX** | Google's conversational AI platform with native telephony (SIP/PSTN) and Playbooks. Out of scope for the MVP voice path; the documented next step for telephony is a Twilio Media Streams bridge in front of the existing `WS /agent/voice/live` socket. |

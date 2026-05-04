@@ -44,6 +44,7 @@ from backend.llm import circuit_breaker
 from backend.llm.client import AgentError, generate_json, load_prompt, render
 from backend.models.agent import AgentRequest
 from backend.repositories.bigquery_client import fq, get_bq_client
+from backend.repositories.trace_writer import capture_trace_events
 from backend.services.agent_service import REFUSAL_TEXT, handle_turn
 
 log = logging.getLogger("eval_runner")
@@ -79,9 +80,15 @@ class QueryResult:
     derived_outcome: str
     latency_ms: int
 
+    # Per-query measured cost (sum of every LLM call's cost_usd captured from
+    # trace events during this query's pipeline run). Includes the eval judge.
+    cost_usd: float
+
     # Eval dimensions
     intent_correct: bool
-    hit: bool
+    # `hit` is None for journeys that don't exercise retrieval — those queries
+    # are excluded from the retrieval-hit-rate denominator at aggregation time.
+    hit: bool | None
     grounded: bool
     task_success: str         # resolved | partial | failed | error
     tone_appropriate: str     # yes | no | unknown
@@ -120,11 +127,11 @@ def _judge(
     response_text: str,
     expected_outcome: str,
     journey: str,
-) -> dict[str, str]:
-    """Call Gemini Flash with the eval rubric. Returns parsed JSON.
+) -> tuple[dict[str, str], float]:
+    """Call Gemini Flash with the eval rubric. Returns `(parsed, cost_usd)`.
 
     On any failure, returns a sentinel dict so the caller can mark the query
-    as "error" rather than crashing the run.
+    as "error" rather than crashing the run, with cost 0.0.
     """
     settings = get_settings()
     template = load_prompt("eval_judge")
@@ -136,7 +143,7 @@ def _judge(
         JOURNEY=journey,
     )
     try:
-        parsed, _llm = generate_json(
+        parsed, llm = generate_json(
             model=settings.gemini_flash_model,
             prompt=prompt,
             temperature=0.0,
@@ -146,23 +153,77 @@ def _judge(
         )
     except (AgentError, circuit_breaker.CircuitOpenError) as exc:
         log.warning("judge failed: %s", exc)
-        return {
-            "task_success": "error",
-            "tone_appropriate": "unknown",
-            "hallucinated": "unknown",
-        }
-    return {
-        "task_success":     str(parsed.get("task_success", "error")).strip().lower(),
-        "tone_appropriate": str(parsed.get("tone_appropriate", "unknown")).strip().lower(),
-        "hallucinated":     str(parsed.get("hallucinated", "unknown")).strip().lower(),
-    }
+        return (
+            {
+                "task_success": "error",
+                "tone_appropriate": "unknown",
+                "hallucinated": "unknown",
+            },
+            0.0,
+        )
+    return (
+        {
+            "task_success":     str(parsed.get("task_success", "error")).strip().lower(),
+            "tone_appropriate": str(parsed.get("tone_appropriate", "unknown")).strip().lower(),
+            "hallucinated":     str(parsed.get("hallucinated", "unknown")).strip().lower(),
+        },
+        float(llm.cost_usd),
+    )
 
 
 # ─── Per-query eval ───────────────────────────────────────────────────────
 
 
+def _sum_cost(events: list[dict]) -> float:
+    """Sum `cost_usd` across every LLM call captured in this query's events.
+
+    Each LLM-emitting stage (intent_routing, synthesis, grounding_verification,
+    plus retry-attempt synthesis and verification rows) writes its
+    LLMResult.cost_usd into the event metadata. Tool events without an
+    LLM call (retrieval, order_lookup, slot_extraction) carry no cost.
+    """
+    total = 0.0
+    for ev in events:
+        cost = ev.get("metadata", {}).get("cost_usd")
+        if cost is not None:
+            try:
+                total += float(cost)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
+def _retrieval_hit(events: list[dict], threshold: float) -> bool | None:
+    """Return whether retrieval surfaced at least one passage scoring above
+    `threshold`. Returns None if this query never exercised retrieval (e.g.,
+    order_status journeys that go straight to BQ).
+    """
+    saw_retrieval = False
+    for ev in events:
+        if ev.get("event_type") != "retrieval":
+            continue
+        saw_retrieval = True
+        passages = ev.get("metadata", {}).get("passages") or []
+        for p in passages:
+            # Prefer the rerank score; fall back to fused / semantic in that
+            # order so the metric still works against pre-reranker stubs.
+            score = (
+                p.get("rerank_score")
+                or p.get("fused_score")
+                or p.get("semantic_score")
+                or 0.0
+            )
+            try:
+                if float(score) >= threshold:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False if saw_retrieval else None
+
+
 def _evaluate_one(query: dict[str, Any], *, run_id: str) -> QueryResult:
     """Run one labeled query through the pipeline and score it."""
+    settings = get_settings()
     started = time.perf_counter()
     trace_id = f"trc_eval_{run_id}_{query['query_id']}"
     request = AgentRequest(
@@ -173,10 +234,17 @@ def _evaluate_one(query: dict[str, Any], *, run_id: str) -> QueryResult:
         history=[],
     )
 
+    # Capture every TraceWriter event emitted during this query's run so we
+    # can compute real per-query cost and a real retrieval-hit signal without
+    # round-tripping through BigQuery.
+    pipeline_events: list[dict]
+    judge_events: list[dict]
+
     # Run the pipeline. Failures inside handle_turn already degrade safe
     # (escalation), so we mostly only catch unexpected exceptions here.
     try:
-        response = handle_turn(request)
+        with capture_trace_events() as pipeline_events:
+            response = handle_turn(request)
         response_text = response.response_text
         response_intent = response.intent
         response_confidence = response.confidence
@@ -193,6 +261,7 @@ def _evaluate_one(query: dict[str, Any], *, run_id: str) -> QueryResult:
         response_escalate = True
         latency_ms = int((time.perf_counter() - started) * 1000)
         run_error = f"pipeline_exception: {exc}"
+        pipeline_events = []
 
     derived_outcome = _derive_outcome(
         response_text=response_text, escalate=response_escalate
@@ -207,17 +276,21 @@ def _evaluate_one(query: dict[str, Any], *, run_id: str) -> QueryResult:
     # test set expected escalation/out_of_scope explicitly.
     intent_correct = response_intent == query["expected_intent"]
 
-    # Retrieval hit — stub per spec ("always True for now").
-    hit = query["journey"] == "product_qa"
+    # Real retrieval hit — read from the actual retrieval event(s) captured
+    # during this query's pipeline run. None for journeys that never call
+    # retrieval, so the aggregator can exclude them from the denominator.
+    hit = _retrieval_hit(pipeline_events, settings.retrieval_hit_threshold)
 
     # Must-contain / must-not-contain string checks
     text_lc = response_text.lower()
     must_contain_ok = all(s.lower() in text_lc for s in query.get("must_contain", []))
     must_not_contain_ok = all(s.lower() not in text_lc for s in query.get("must_not_contain", []))
 
-    # LLM-as-judge — skip if the pipeline crashed (response_text is empty)
+    # LLM-as-judge — skip if the pipeline crashed (response_text is empty).
+    # The judge call's cost is included in the per-query total (a real eval
+    # run *includes* the judge cost).
     if run_error is None and response_text.strip():
-        judged = _judge(
+        judged, judge_cost = _judge(
             utterance=query["utterance"],
             response_text=response_text,
             expected_outcome=query["expected_outcome"],
@@ -229,6 +302,9 @@ def _evaluate_one(query: dict[str, Any], *, run_id: str) -> QueryResult:
             "tone_appropriate": "unknown",
             "hallucinated": "unknown",
         }
+        judge_cost = 0.0
+
+    cost_usd = round(_sum_cost(pipeline_events) + judge_cost, 6)
 
     return QueryResult(
         query_id=query["query_id"],
@@ -243,6 +319,7 @@ def _evaluate_one(query: dict[str, Any], *, run_id: str) -> QueryResult:
         response_escalate=response_escalate,
         derived_outcome=derived_outcome,
         latency_ms=latency_ms,
+        cost_usd=cost_usd,
         intent_correct=intent_correct,
         hit=hit,
         grounded=response_grounded,
@@ -322,8 +399,11 @@ def _aggregate(results: list[QueryResult], *, run_id: str) -> RunMetrics:
 
     intent_correct = sum(1 for r in results if r.intent_correct)
 
-    pqa = [r for r in results if r.journey == "product_qa"]
-    pqa_hits = sum(1 for r in pqa if r.hit)
+    # Retrieval hit-rate is computed only over queries that actually exercised
+    # retrieval (`hit is not None`). Order-status and clarifying service-request
+    # turns never call retrieval, so including them would dilute the metric.
+    retrieval_results = [r for r in results if r.hit is not None]
+    retrieval_hits = sum(1 for r in retrieval_results if r.hit is True)
 
     hallucinated = sum(1 for r in results if r.hallucinated == "yes")
 
@@ -337,7 +417,13 @@ def _aggregate(results: list[QueryResult], *, run_id: str) -> RunMetrics:
         idx = max(0, min(len(latencies) - 1, int(round(p * (len(latencies) - 1)))))
         return int(latencies[idx])
 
-    cost_per_call = _estimate_cost_per_call(total)
+    # Real cost-per-call: arithmetic mean of measured per-query cost (sum of
+    # every LLM call's `cost_usd` captured from trace events, including the
+    # eval judge). Replaces the prior hardcoded $0.0014 estimate.
+    measured_costs = [r.cost_usd for r in results if r.cost_usd > 0]
+    cost_per_call = (
+        sum(measured_costs) / len(measured_costs) if measured_costs else 0.0
+    )
 
     per_journey_counts = {
         j: sum(1 for r in results if r.journey == j)
@@ -355,25 +441,13 @@ def _aggregate(results: list[QueryResult], *, run_id: str) -> RunMetrics:
         task_success_product_qa=_journey_task_success(results, "product_qa"),
         task_success_service_request=_journey_task_success(results, "service_request"),
         intent_accuracy=_safe_div(intent_correct, total),
-        retrieval_hit_rate=_safe_div(pqa_hits, len(pqa)),
+        retrieval_hit_rate=_safe_div(retrieval_hits, len(retrieval_results)),
         hallucination_rate=_safe_div(hallucinated, total),
         latency_p50_ms=_pct(0.50),
         latency_p95_ms=_pct(0.95),
         cost_per_call_usd=round(cost_per_call, 6),
         per_journey_counts=per_journey_counts,
     )
-
-
-def _estimate_cost_per_call(total: int) -> float:
-    """Best-effort cost per call. Each pipeline invocation makes ~3-5 LLM
-    calls (router + specialist synth + verifier ± retry); plus the eval
-    judge. Use a fixed ~ $0.0014/call budget per ARCHITECTURE.md §12 since
-    the LLMResult cost values are already logged into BQ traces — duplicating
-    them here would require reading the traces back. Static estimate is
-    fine for the run-summary metric (frontend already shows it as a band)."""
-    if total == 0:
-        return 0.0
-    return 0.0014
 
 
 # ─── Persistence ──────────────────────────────────────────────────────────

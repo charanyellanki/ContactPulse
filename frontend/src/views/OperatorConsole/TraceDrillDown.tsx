@@ -26,14 +26,26 @@ export function TraceDrillDown() {
   const expandAll = useUiStore((s) => s.expandAllEvents);
   const collapseAll = useUiStore((s) => s.collapseAllEvents);
 
+  const channel = useUiStore((s) => s.ocChannelFilter);
   const { data: conversations } = useConversations();
   const { data: trace, isLoading } = useTrace(selectedTraceId);
 
-  // Default-select the first fully-populated trace if nothing is chosen,
-  // so the screen renders something on first arrival.
+  const sidebarConversations = useMemo(() => {
+    if (!conversations) return [];
+    if (channel === "all") return conversations;
+    return conversations.filter((c) => c.modality === channel);
+  }, [conversations, channel]);
+
+  // Default-select the first matching trace when nothing is chosen, or when
+  // the current selection is hidden by the channel filter.
   useEffect(() => {
-    if (!selectedTraceId) selectTrace("trc_001_order_happy");
-  }, [selectedTraceId, selectTrace]);
+    if (!conversations) return;
+    const stillVisible =
+      selectedTraceId && sidebarConversations.some((c) => c.trace_id === selectedTraceId);
+    if (!stillVisible && sidebarConversations.length > 0) {
+      selectTrace(sidebarConversations[0].trace_id);
+    }
+  }, [selectedTraceId, conversations, sidebarConversations, selectTrace]);
 
   const eventKeys = useMemo(() => {
     if (!trace) return [];
@@ -49,7 +61,12 @@ export function TraceDrillDown() {
               Conversations
             </div>
             <div className="space-y-0.5">
-              {conversations?.map((c) => {
+              {sidebarConversations.length === 0 && (
+                <div className="px-2 py-3 text-[11px] text-muted-foreground">
+                  No {channel} conversations match the current filter.
+                </div>
+              )}
+              {sidebarConversations.map((c) => {
                 const detailed = FULLY_POPULATED.includes(c.trace_id);
                 return (
                   <button

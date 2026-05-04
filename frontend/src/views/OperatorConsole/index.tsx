@@ -5,6 +5,8 @@ import { TraceDrillDown } from "./TraceDrillDown";
 import { EvalRuns } from "./EvalRuns";
 import { ErrorAnalysis } from "./ErrorAnalysis";
 import { BusinessReadout } from "./BusinessReadout";
+import { ChannelFilter } from "./ChannelFilter";
+import { useUiStore } from "@/store/ui";
 
 const TABS = ["traces", "drilldown", "evals", "errors", "readout"] as const;
 type Tab = (typeof TABS)[number];
@@ -23,15 +25,28 @@ export function OperatorConsole() {
   const active: Tab = (TABS as readonly string[]).includes(tab ?? "")
     ? (tab as Tab)
     : "traces";
+  const channel = useUiStore((s) => s.ocChannelFilter);
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Operator Console</h1>
-        <p className="text-sm text-muted-foreground">
-          Traces, eval runs, error clusters, and the business readout — the surface a CX data
-          scientist actually uses.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Operator Console</h1>
+          <p className="text-sm text-muted-foreground">
+            Traces, eval runs, error clusters, and the business readout — the surface a CX data
+            scientist actually uses.
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <ChannelFilter />
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {channel === "voice"
+              ? "scoped to voice"
+              : channel === "chat"
+                ? "scoped to chat"
+                : "all channels"}
+          </div>
+        </div>
       </div>
 
       <Tabs value={active} onValueChange={(v) => navigate(`/operator/${v}`)}>

@@ -1,33 +1,20 @@
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ExternalLink, AlertTriangle } from "lucide-react";
 import { useUiStore } from "@/store/ui";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { generateTraceId } from "@/lib/traceId";
-import {
-  postAgentTurn,
-  postAgentVoice,
-  type AgentTurnHistoryItem,
-} from "@/api/agent";
+import { postAgentTurn, type AgentTurnHistoryItem } from "@/api/agent";
 import { ModalityToggle } from "./ModalityToggle";
 import { CustomerSelector } from "./CustomerSelector";
 import { Transcript } from "./Transcript";
 import { ChatInput } from "./ChatInput";
-import { PushToTalk } from "./PushToTalk";
+import { LiveVoice, type LiveTranscriptTurn } from "./LiveVoice";
 
 interface Turn {
   role: "customer" | "agent";
   text: string;
   timestamp: string;
-}
-
-function playBase64Audio(audio_base64: string, mime: string): void {
-  const audio = new Audio(`data:${mime};base64,${audio_base64}`);
-  void audio.play().catch(() => {
-    // Autoplay can be blocked until the first user gesture; for push-to-talk
-    // the gesture has already happened, but we still don't want to throw.
-  });
 }
 
 export function CustomerExperience() {
@@ -46,14 +33,12 @@ export function CustomerExperience() {
       text: t.text,
     }));
 
-  const append = (turn: Turn) =>
-    setTurns((prev) => [...prev, turn]);
+  const append = (turn: Turn) => setTurns((prev) => [...prev, turn]);
 
   const sendChat = async (text: string) => {
     if (busy) return;
     setError(null);
-    const now = new Date().toISOString();
-    append({ role: "customer", text, timestamp: now });
+    append({ role: "customer", text, timestamp: new Date().toISOString() });
     setBusy(true);
     try {
       const resp = await postAgentTurn({
@@ -69,115 +54,95 @@ export function CustomerExperience() {
         timestamp: new Date().toISOString(),
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const sendVoice = async (audioBase64: string, mime: string) => {
-    if (busy) return;
-    setError(null);
-    setBusy(true);
-    try {
-      const resp = await postAgentVoice({
-        trace_id: traceId,
-        customer_id: customerId,
-        audio_base64: audioBase64,
-        history: buildHistory(),
-      });
-      const ts = new Date().toISOString();
-      append({ role: "customer", text: resp.utterance, timestamp: ts });
-      append({
-        role: "agent",
-        text: resp.response_text,
-        timestamp: new Date().toISOString(),
-      });
-      playBase64Audio(resp.audio_base64, resp.audio_mime);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      // Avoid the unused-var warning for `mime` while keeping the signature
-      // future-proof if we ever forward the recorded mime to the backend.
-      void mime;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const subtitle = useMemo(
-    () =>
-      modality === "voice"
-        ? "Voice channel — push-to-talk. Same agent pipeline as chat."
-        : "Chat channel — text input. Same agent pipeline as voice.",
-    [modality],
-  );
+  const onLiveTurn = (turn: LiveTranscriptTurn) =>
+    append({
+      role: turn.role,
+      text: turn.text,
+      timestamp: turn.timestamp,
+    });
 
   return (
-    <div className="grid grid-cols-12 gap-6">
-      <aside className="col-span-12 space-y-4 lg:col-span-3">
-        <div>
-          <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            Channel
-          </h2>
-          <div className="mt-2">
-            <ModalityToggle />
-          </div>
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
+      {/* ── Slim header strip ─────────────────────────────────────────── */}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+        <div className="flex items-center gap-3">
+          <ModalityToggle />
         </div>
+        <Badge variant="outline" className="font-mono text-[10px]">
+          trace · {traceId}
+        </Badge>
+      </header>
+
+      <div>
         <CustomerSelector />
-      </aside>
+      </div>
 
-      <section className="col-span-12 space-y-4 lg:col-span-9">
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
-            <div>
-              <CardTitle>Customer Experience</CardTitle>
-              <div className="text-sm text-muted-foreground">{subtitle}</div>
+      {/* ── Hero ──────────────────────────────────────────────────────── */}
+      <section className="flex flex-col items-center gap-6 py-8">
+        {modality === "voice" ? (
+          <LiveVoice
+            traceId={traceId}
+            customerId={customerId}
+            onTurn={onLiveTurn}
+            onError={setError}
+          />
+        ) : (
+          <div className="flex w-full max-w-xl flex-col items-center gap-3">
+            <div className="text-center">
+              <div className="text-base font-medium tracking-tight">
+                Type a message to the agent
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Same agent pipeline as voice — DLP, routing, grounding,
+                escalation. Switch to Voice to talk hands-free.
+              </div>
             </div>
-            <Badge variant="outline" className="font-mono text-[10px]">
-              trace {traceId}
-            </Badge>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Transcript turns={turns} />
-            {error && (
-              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                <span>{error}</span>
-              </div>
-            )}
-            {modality === "chat" ? (
+            <div className="w-full">
               <ChatInput disabled={busy} onSend={sendChat} />
-            ) : (
-              <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
-                <div className="text-sm text-muted-foreground">
-                  Press and hold the mic to capture an utterance.
-                </div>
-                <PushToTalk
-                  busy={busy}
-                  onAudio={sendVoice}
-                  onError={setError}
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          </div>
+        )}
 
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>
-            Conversation tied to trace ID{" "}
-            <span className="font-mono text-foreground">{traceId}</span>.
-          </span>
-          <Link
-            to="/operator/traces"
-            className="inline-flex items-center gap-1 underline-offset-4 hover:text-foreground hover:underline"
-          >
-            Open in Operator Console
-            <ExternalLink className="h-3 w-3" />
-          </Link>
-        </div>
+        {error && (
+          <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            <span>{error}</span>
+          </div>
+        )}
       </section>
+
+      {/* ── Conversation log ──────────────────────────────────────────── */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground">
+            Conversation log
+          </h3>
+          <span className="text-[10px] text-muted-foreground/70">
+            {turns.length} turn{turns.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <Transcript turns={turns} />
+      </section>
+
+      <footer className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          Conversation tied to trace ID{" "}
+          <span className="font-mono text-foreground">{traceId}</span>.
+        </span>
+        <Link
+          to="/operator/traces"
+          className="inline-flex items-center gap-1 underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Open in Operator Console
+          <ExternalLink className="h-3 w-3" />
+        </Link>
+      </footer>
     </div>
   );
 }

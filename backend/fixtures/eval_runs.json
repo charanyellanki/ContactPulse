@@ -1,9 +1,9 @@
 [
   {
-    "run_id": "evr_20260501_1100",
+    "run_id": "evr_seed_fixture_1",
     "run_timestamp": "2026-05-01T11:00:00.000Z",
-    "git_sha": "a1b2c3d",
-    "config_hash": "cfg_4f8a2e",
+    "git_sha": "seed-synthetic",
+    "config_hash": "seed-cfg-4f8a2e",
     "total_queries": 152,
     "primary_metrics": {
       "containment": 0.638,
@@ -16,10 +16,10 @@
     }
   },
   {
-    "run_id": "evr_20260430_1842",
+    "run_id": "evr_seed_fixture_2",
     "run_timestamp": "2026-04-30T18:42:00.000Z",
-    "git_sha": "9e7d1f2",
-    "config_hash": "cfg_4f8a2e",
+    "git_sha": "seed-synthetic",
+    "config_hash": "seed-cfg-4f8a2e",
     "total_queries": 152,
     "primary_metrics": {
       "containment": 0.617,
@@ -32,10 +32,10 @@
     }
   },
   {
-    "run_id": "evr_20260430_0915",
+    "run_id": "evr_seed_fixture_3",
     "run_timestamp": "2026-04-30T09:15:00.000Z",
-    "git_sha": "7c4b8a0",
-    "config_hash": "cfg_3a1d09",
+    "git_sha": "seed-synthetic",
+    "config_hash": "seed-cfg-3a1d09",
     "total_queries": 150,
     "primary_metrics": {
       "containment": 0.602,
@@ -48,10 +48,10 @@
     }
   },
   {
-    "run_id": "evr_20260429_1620",
+    "run_id": "evr_seed_fixture_4",
     "run_timestamp": "2026-04-29T16:20:00.000Z",
-    "git_sha": "5a2e6d3",
-    "config_hash": "cfg_3a1d09",
+    "git_sha": "seed-synthetic",
+    "config_hash": "seed-cfg-3a1d09",
     "total_queries": 150,
     "primary_metrics": {
       "containment": 0.587,
@@ -64,10 +64,10 @@
     }
   },
   {
-    "run_id": "evr_20260428_1430",
+    "run_id": "evr_seed_fixture_5",
     "run_timestamp": "2026-04-28T14:30:00.000Z",
-    "git_sha": "3f9c0a1",
-    "config_hash": "cfg_2b08e4",
+    "git_sha": "seed-synthetic",
+    "config_hash": "seed-cfg-2b08e4",
     "total_queries": 148,
     "primary_metrics": {
       "containment": 0.541,
@@ -80,10 +80,10 @@
     }
   },
   {
-    "run_id": "evr_20260427_2055",
+    "run_id": "evr_seed_fixture_6",
     "run_timestamp": "2026-04-27T20:55:00.000Z",
-    "git_sha": "1d6f4e7",
-    "config_hash": "cfg_2b08e4",
+    "git_sha": "seed-synthetic",
+    "config_hash": "seed-cfg-2b08e4",
     "total_queries": 148,
     "primary_metrics": {
       "containment": 0.512,

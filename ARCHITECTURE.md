@@ -8,6 +8,12 @@
 
 ContactPulse is a multi-agent conversational AI system on Google Cloud, with a first-class evaluation and observability layer. It is delivered as a single web application with two views — Customer Experience (the workload) and Operator Console (the data scientist's workspace) — sharing one backend.
 
+The backend is a **Vertex AI Agent Development Kit (ADK)** application. The agent system is an **ADK agent hierarchy**: a top-level `SequentialAgent` wraps `pre_processing_agent` → `coordinator_agent` (an `LlmAgent` whose `sub_agents` are the per-journey specialists) → `post_processing_agent`. Tools (DLP redaction, customer-context lookup, hybrid search, BigQuery order lookups, slot extraction, grounding verification) are typed Python functions registered on the appropriate agents. Control flow that would have been an `if`/`elif` ladder lives in two places: the coordinator's instructions (which sub-agent to delegate to) and ADK callbacks (`after_model` enforces the confidence gate; `after_agent` triggers the grounding retry loop).
+
+Chat goes through the per-turn pipeline (`POST /agent/turn`). Voice is realtime via Vertex AI's Gemini Live API (`WS /agent/voice/live`) — Gemini owns VAD, turn detection, barge-in, and streaming TTS; tools registered on the Live session wrap the same repositories the chat pipeline uses, so business logic is shared even though the runtime shapes differ. See §4.1 (chat) and §4.3 (voice).
+
+All GCP resources behind the API — BigQuery, Cloud Run, Vertex AI Search engine + datastore, GCS buckets, IAM, DLP templates, Secret Manager — are declared in `infra/terraform/`. The Terraform tree is the only sanctioned way to mutate cloud state.
+
 ```mermaid
 flowchart TB
     subgraph Vercel["Vercel (Static Frontend)"]
@@ -15,52 +21,61 @@ flowchart TB
         OView["Operator Console View<br/>(traces, evals, errors, readout)"]
     end
 
-    subgraph CloudRun["Cloud Run (Backend Service)"]
-        API["FastAPI<br/>/conversations  /traces<br/>/eval-runs  /errors  /health"]
-        Router["Router Agent<br/>(Gemini 2.0 Flash)"]
-        OrderAgent["Order Status<br/>Specialist"]
-        QAAgent["Product/Policy Q&A<br/>Specialist"]
-        ServiceAgent["Service Request<br/>Specialist"]
-        Synth["Response Synthesizer<br/>(Gemini 2.0 Pro)"]
-        Verifier["Quote-Grounding Verifier<br/>(LLM-as-judge)"]
+    subgraph CloudRun["Cloud Run — ADK app (FastAPI shell)"]
+        API["FastAPI<br/>/agent/turn  WS /agent/voice/live<br/>/traces  /eval-runs  /errors  /health"]
+
+        subgraph SeqAgent["SequentialAgent (root)"]
+            Pre["pre_processing_agent<br/>tools: dlp_redact,<br/>customer_context_lookup"]
+
+            subgraph Coord["coordinator_agent (LlmAgent — Gemini 2.5 Flash)"]
+                direction TB
+                CoordHub["delegates via<br/>transfer_to_agent"]
+                OrderAgent["order_status_agent<br/>(LlmAgent — Gemini 2.5 Pro)<br/>tools: lookup_recent_orders,<br/>lookup_order_by_id"]
+                QAAgent["product_qa_agent<br/>(LlmAgent — Gemini 2.5 Pro)<br/>tools: hybrid_search<br/>(Vertex AI Search +<br/>RRF + reranker)"]
+                ServiceAgent["service_request_agent<br/>(LlmAgent — Gemini 2.5 Flash)<br/>tools: extract_slots,<br/>confirm_appointment"]
+                EscAgent["escalation_agent<br/>(LlmAgent — Gemini 2.5 Flash)"]
+                CoordHub --> OrderAgent
+                CoordHub --> QAAgent
+                CoordHub --> ServiceAgent
+                CoordHub --> EscAgent
+            end
+
+            Post["post_processing_agent<br/>tool: grounding_verify<br/>(LLM-as-judge, Gemini 2.5 Pro)<br/>after_agent callback:<br/>retry-stricter or escalate"]
+        end
     end
 
-    subgraph GCP["GCP Managed Services"]
-        STT["Speech-to-Text"]
-        TTS["Text-to-Speech"]
-        Search[("Vertex AI Search<br/>Product + Policy KB")]
-        BQ[("BigQuery<br/>Customer 360 + Traces")]
-        GCS[("Cloud Storage<br/>KB + Audio")]
+    subgraph GCP["GCP managed services (Terraform-provisioned)"]
+        Live["Gemini Live API<br/>(realtime voice — bidi PCM)"]
+        Search[("Vertex AI Search<br/>engine + datastore<br/>(product + policy KB)")]
+        BQ[("BigQuery<br/>Customer 360 + Traces + Evals")]
+        GCS[("Cloud Storage<br/>KB + audio + eval artifacts")]
+        DLP["Cloud DLP"]
+        SM["Secret Manager"]
         Looker[("Looker Studio<br/>Dashboard")]
     end
 
-    CView -->|HTTPS| API
+    CView -->|HTTPS — chat turns| API
+    CView -.->|WSS — voice frames| API
     OView -->|HTTPS| API
 
-    API --> STT
-    API --> Router
-    Router --> OrderAgent
-    Router --> QAAgent
-    Router --> ServiceAgent
+    API -- chat: handle_turn --> SeqAgent
+    API == voice: WS bridge ==> Live
+    Live -.tool calls.-> SeqAgent
 
-    OrderAgent --> BQ
-    QAAgent --> Search
-    ServiceAgent --> BQ
-    ServiceAgent --> Search
+    Pre --> Coord
+    Coord --> Post
 
-    OrderAgent --> Synth
-    QAAgent --> Synth
-    ServiceAgent --> Synth
-
-    Synth --> Verifier
-    Verifier --> TTS
-
-    API -.trace.-> BQ
+    Pre -.calls.-> DLP
+    Pre -.reads.-> BQ
+    QAAgent -.queries.-> Search
+    OrderAgent -.reads.-> BQ
+    ServiceAgent -.reads/writes.-> BQ
+    SeqAgent -.callback trace events.-> BQ
     OView -->|iframe embed| Looker
     Looker -.reads.-> BQ
 ```
 
-The Vercel ↔ Cloud Run boundary is the only network hop the frontend crosses. Everything inside Cloud Run runs in-process. The Operator Console reads from the backend's `/traces`, `/eval-runs`, and `/errors` endpoints; the embedded Looker dashboard reads BigQuery directly.
+The Vercel ↔ Cloud Run boundary is the only network hop the frontend crosses. Everything inside Cloud Run runs in-process inside the ADK runtime. The Operator Console reads from the backend's `/traces`, `/eval-runs`, and `/errors` endpoints; the embedded Looker dashboard reads BigQuery directly.
 
 ---
 
@@ -69,20 +84,21 @@ The Vercel ↔ Cloud Run boundary is the only network hop the frontend crosses. 
 | Layer | Service | Why |
 |---|---|---|
 | Frontend hosting | **Vercel** (not GCP) | Zero-friction CI/CD, preview deploys, edge caching. The frontend is static asset delivery; no hiring signal lost by hosting outside GCP. |
-| Voice in | Google Speech-to-Text | Industry-standard ASR; matches the stack production retail teams use. |
-| Voice out | Google Text-to-Speech | Same. Pairs with STT for end-to-end voice loop. |
+| Voice (realtime) | **Vertex AI Gemini Live API** (`gemini-live-2.5-flash-native-audio`) | Bidirectional PCM streaming, server VAD, native barge-in, streaming TTS, tool calls. Replaces the Speech-to-Text v2 + Text-to-Speech v1 batch helpers used in v1.3. See §4.3 and CLAUDE.md §14. |
 | Backend hosting | **Cloud Run** | Serverless, scales to zero, free tier covers demo, fits MVP cost profile. |
-| Orchestration | Vertex AI Agent Development Kit (ADK), graph-based multi-agent | Native to Gemini Enterprise Agent Platform; explicit multi-agent coordination. |
-| LLM (routing) | Gemini 2.0 Flash | Cheap, fast — production-realistic for high-volume intent routing. |
-| LLM (synthesis & verification) | Gemini 2.0 Pro | Higher quality where it matters: response generation and grounding judgment. |
-| Retrieval | Vertex AI Search | Native Gemini Enterprise integration; managed indexing and serving. |
-| Hybrid retrieval augmentation | Custom RRF + cross-encoder reranker | Improves recall and precision over vanilla semantic search. |
-| Data warehouse | BigQuery | Customer 360, orders, eval traces, conversation logs. SQL-native analytics. |
-| Object storage | Cloud Storage | KB documents, audio recordings, eval artifacts. |
-| Safety (PII) | Custom regex stub for MVP; Cloud DLP integration as future work | Demonstrates the layer without committing to full DLP cost. |
+| Orchestration | **Vertex AI Agent Development Kit (ADK)** — pinned to a specific minor version in `requirements.txt` | GCP-native multi-agent framework. Provides agent definitions (`LlmAgent`, `SequentialAgent`, `LoopAgent`, `ParallelAgent`), typed tool registration, native sub-agent delegation, lifecycle callbacks for observability, and a deterministic `Runner` for testing. Forward-compatible with the **A2A (Agent-to-Agent) protocol** for cross-app handoffs. The agent hierarchy in `backend/contactpulse/orchestration/agents.py` is the source of truth for "what the agent does." Version pinned (no `>=`) because ADK is pre-1.0; bumping requires a smoke-eval pass. |
+| LLM (routing, slot extraction, judges) | **Gemini 2.5 Flash** | Cheap, fast — production-realistic for high-volume intent routing and rubric-based judging. |
+| LLM (synthesis & verification) | **Gemini 2.5 Pro** | Higher quality where it matters: response generation and grounding judgment. |
+| Retrieval | **Vertex AI Search** (engine + datastore) | Managed indexing and serving over the synthetic product + policy KB. |
+| Hybrid retrieval augmentation | **Vertex AI Search semantic + keyword query → RRF → cross-encoder reranker** (Vertex AI ranking API; Gemini Flash judge as fallback) | Improves recall and precision over vanilla semantic search. Implemented in `backend/contactpulse/retrieval/`. |
+| Data warehouse | **BigQuery** | Customer 360, orders, eval traces, conversation logs. SQL-native analytics. |
+| Object storage | **Cloud Storage** | KB source documents, audio recordings, eval artifacts, Terraform state backend. |
+| Safety (PII) | **Cloud DLP** (`deidentify_content`) with regex fallback when DLP circuit opens | De-identification at the input boundary, before any prompt sees the utterance. |
 | Eval orchestration | Vertex AI Evaluation + custom LLM-as-judge | Hybrid: managed where it works, custom where rubrics need to be project-specific. |
-| Observability | Cloud Logging + Cloud Trace + Looker Studio | Standard GCP observability stack. |
-| CI/CD (backend) | GitHub Actions → Cloud Build → Cloud Run | Standard pattern; reproducible deploys. |
+| Observability | Cloud Logging + Cloud Trace + Looker Studio + per-callback BQ trace events | Standard GCP observability stack, augmented with ADK lifecycle-callback telemetry (`before_*` / `after_*` hooks → BQ rows). |
+| Industry analog (production reference) | **Vertex AI Conversational Insights** | The product a large retailer would deploy in production for CX call/chat analytics. ContactPulse's Operator Console is an in-app slice of the same pattern, reading the same BigQuery tables. Our schema is intentionally compatible so the data layer transfers cleanly. Out-of-scope to actually integrate for the MVP. |
+| **Infrastructure as code** | **Terraform** (state in GCS) | All GCP resources above are declared under `infra/terraform/`. Manual `gcloud` mutations are drift, not changes. |
+| CI/CD (backend) | GitHub Actions → Cloud Build → Cloud Run | Standard pattern; reproducible deploys. Terraform plan/apply runs in a separate workflow gated on manual approval. |
 | CI/CD (frontend) | GitHub Actions → Vercel (auto-deploy on push to `main`) | Vercel's git integration handles this natively. |
 
 ### 2.1 Cloud Run Configuration (backend)
@@ -113,6 +129,37 @@ The Vercel ↔ Cloud Run boundary is the only network hop the frontend crosses. 
 | Auto-deploy branch | `main` |
 | Preview deploys | Enabled (every PR) |
 
+### 2.3 Infrastructure as Code (Terraform)
+
+All GCP resources are declared in `infra/terraform/` and managed via `terraform plan` / `terraform apply`. State is stored remotely in a GCS bucket (`gs://${PROJECT_ID}-contactpulse-tfstate`) with object versioning enabled and lifecycle policies retaining the last 90 days of state.
+
+**Modules (Terraform-managed — the static plane):**
+
+| Module | Owns |
+|---|---|
+| `modules/bigquery` | The `contactpulse` dataset; tables `customers`, `orders`, `service_requests`, `conversations`, `conversation_traces`, `eval_runs`; partitioning + clustering on `created_at` and `trace_id`. |
+| `modules/cloud_run` | The `contactpulse-api` service, revision configuration, traffic policy, IAM invoker bindings, env vars (referenced from Secret Manager). |
+| `modules/gcs` | Buckets: `${PROJECT}-contactpulse-kb`, `${PROJECT}-contactpulse-evals`, `${PROJECT}-contactpulse-audio`, `${PROJECT}-contactpulse-tfstate`. Uniform bucket-level access; lifecycle on audio. |
+| `modules/iam` | Service accounts: `contactpulse-api`, `contactpulse-eval`, `contactpulse-deployer`. Least-privilege role bindings (BQ data editor scoped to the dataset, Vertex AI user, GCS object admin scoped to the project's buckets, Discovery Engine user for search-engine query access). |
+| `modules/dlp` | DLP inspect + deidentify templates (PERSON_NAME, PHONE_NUMBER, EMAIL_ADDRESS, STREET_ADDRESS, CREDIT_CARD_NUMBER). |
+| `modules/secret_manager` | Secrets consumed by Cloud Run via env-var-from-secret bindings (no secrets in plain env vars). |
+| `modules/apis` | `google_project_service` resources enabling required APIs (`aiplatform`, `discoveryengine`, `bigquery`, `run`, `texttospeech`, `speech`, `cloudbuild`, `secretmanager`, `dlp`). |
+
+**Script-managed (deliberate carve-out):**
+
+| Resource | Owned by | Why not Terraform |
+|---|---|---|
+| Vertex AI Search **engine + datastore + serving config** | `scripts/index_kb.py` | Terraform provider coverage for `discoveryengine` is uneven and engine-creation Terraform plans regularly need `null_resource` + `gcloud` shell-outs. A one-shot Python script with idempotent create-or-update + a polling loop is the honest, faster choice for the MVP. The script reads engine/datastore IDs from a `terraform output`-produced fixture and exports the resulting serving-config ID into Secret Manager so the backend's `Settings` reads it the same way it reads any other config value. **Deferred to Terraform when the provider stabilizes** — tracked as a `// TODO(infra)` in `infra/terraform/README.md`. |
+
+**Environments:** `infra/terraform/envs/dev/` and `infra/terraform/envs/prod/` each have their own `terraform.tfvars` and remote-state prefix. The same modules are reused across environments.
+
+**Workflow:**
+- Local: `make tf-plan ENV=dev`, `make tf-apply ENV=dev`.
+- CI: a `terraform-plan` GitHub Actions job runs on every PR touching `infra/terraform/**` and posts the plan as a PR comment.
+- CD: `terraform apply` is gated behind manual approval in the `terraform-apply` workflow.
+
+**Drift policy:** if `terraform plan` shows drift, the drift is reverted, not codified. Out-of-band `gcloud` mutations are treated as incidents, not features.
+
 ---
 
 ## 3. Repository Layout (Separation of Concerns)
@@ -132,14 +179,30 @@ contactpulse/
 │   ├── ci.yml                      # Lint + tests + eval-as-test (backend & frontend)
 │   └── deploy.yml                  # Cloud Run deploy (frontend auto-deploys via Vercel)
 ├── infra/
-│   ├── terraform/                  # GCP resources (BQ, Cloud Run, Search index)
-│   └── seed_data/                  # Synthetic data generators
+│   ├── terraform/                  # ALL GCP resources — single source of truth
+│   │   ├── envs/
+│   │   │   ├── dev/
+│   │   │   │   ├── main.tf
+│   │   │   │   ├── backend.tf      # Remote state in GCS
+│   │   │   │   └── terraform.tfvars
+│   │   │   └── prod/
+│   │   ├── modules/
+│   │   │   ├── apis/               # google_project_service enables
+│   │   │   ├── iam/                # Service accounts + least-priv bindings
+│   │   │   ├── bigquery/           # Dataset + tables (partitioned, clustered)
+│   │   │   ├── gcs/                # KB / evals / audio / tfstate buckets
+│   │   │   ├── vertex_search/      # Engine + datastore + serving config
+│   │   │   ├── cloud_run/          # contactpulse-api service + IAM
+│   │   │   ├── dlp/                # Inspect + deidentify templates
+│   │   │   └── secret_manager/     # Secret resources + accessor bindings
+│   │   └── README.md               # How to plan/apply/destroy per env
+│   └── seed_data/                  # Synthetic data generators (KB docs, eval set)
 ├── backend/
 │   ├── contactpulse/
 │   │   ├── __init__.py
 │   │   ├── config.py               # 12-factor: env-driven config (Pydantic Settings)
 │   │   ├── logging_setup.py        # Structured JSON logging
-│   │   ├── tracing.py              # Trace ID propagation
+│   │   ├── tracing.py              # Trace ID propagation (contextvars)
 │   │   ├── concepts/               # One module per concept (SPEC §5)
 │   │   │   ├── conversation.py
 │   │   │   ├── intent_routing.py
@@ -149,20 +212,37 @@ contactpulse/
 │   │   │   ├── escalation.py
 │   │   │   ├── evaluation.py
 │   │   │   └── observability.py
-│   │   ├── agents/                 # Specialist agents per journey
-│   │   │   ├── base.py             # Abstract Agent (Strategy pattern)
-│   │   │   ├── router.py
-│   │   │   ├── order_status.py
-│   │   │   ├── product_qa.py
-│   │   │   └── service_request.py
+│   │   ├── orchestration/          # ★ ADK agent hierarchy — source of truth
+│   │   │   ├── agents.py           # build_root_agent() — SequentialAgent root
+│   │   │   ├── coordinator.py      # coordinator LlmAgent + sub_agents wiring
+│   │   │   ├── state.py            # SessionState type aliases / Pydantic models
+│   │   │   ├── callbacks/
+│   │   │   │   ├── trace.py        # before_/after_ * → BQ trace event
+│   │   │   │   ├── confidence_gate.py  # after_model on coordinator
+│   │   │   │   └── grounding_retry.py  # after_agent on post_processing_agent
+│   │   │   ├── tools/
+│   │   │   │   ├── dlp_redact.py
+│   │   │   │   ├── customer_context_lookup.py
+│   │   │   │   ├── hybrid_search.py        # Calls retrieval/ module
+│   │   │   │   ├── lookup_recent_orders.py
+│   │   │   │   ├── lookup_order_by_id.py
+│   │   │   │   ├── extract_slots.py
+│   │   │   │   ├── confirm_appointment.py
+│   │   │   │   └── grounding_verify.py
+│   │   │   └── runner.py           # Wraps adk.Runner; used by FastAPI routes + eval
+│   │   ├── agents/                 # Specialist sub-agents (one LlmAgent per journey)
+│   │   │   ├── order_status.py     # LlmAgent + tools (BQ order lookups)
+│   │   │   ├── product_qa.py       # LlmAgent + tools (hybrid_search)
+│   │   │   ├── service_request.py  # LlmAgent + tools (slot-filling)
+│   │   │   └── escalation.py       # LlmAgent — terminal handoff handler
 │   │   ├── llm/
 │   │   │   ├── client.py           # Vertex AI Gemini client (single instance)
 │   │   │   ├── prompts/            # All prompts as Jinja templates
 │   │   │   └── circuit_breaker.py  # Resilience for LLM calls
-│   │   ├── retrieval/
-│   │   │   ├── vertex_search.py
-│   │   │   ├── rrf.py
-│   │   │   └── reranker.py
+│   │   ├── retrieval/              # Vertex AI Search + hybrid pipeline
+│   │   │   ├── vertex_search.py    # Semantic + keyword query against the engine
+│   │   │   ├── rrf.py              # Reciprocal Rank Fusion
+│   │   │   └── reranker.py         # Cross-encoder reranker (Vertex ranking API)
 │   │   ├── data/
 │   │   │   ├── bigquery_client.py
 │   │   │   └── repositories/       # Repository pattern: data access abstracted
@@ -204,7 +284,8 @@ contactpulse/
 │   │   │   ├── CustomerExperience/
 │   │   │   │   ├── index.tsx
 │   │   │   │   ├── ModalityToggle.tsx
-│   │   │   │   ├── PushToTalk.tsx
+│   │   │   │   ├── VoiceOrb.tsx        # Centerpiece visual (idle/listening/agent/error)
+│   │   │   │   ├── LiveVoice.tsx       # WebSocket + audio plumbing → drives VoiceOrb
 │   │   │   │   ├── ChatInput.tsx
 │   │   │   │   ├── Transcript.tsx
 │   │   │   │   └── CustomerSelector.tsx
@@ -243,20 +324,101 @@ contactpulse/
 
 ## 4. Request Lifecycle
 
-### 4.1 A Customer turn (voice or chat)
-1. **Ingress** — Customer pushes to talk (voice) or sends a message (chat). Hits `POST /conversations/{trace_id}/turns` with `{modality, payload}`.
-2. **Trace allocation** — Middleware extracts or assigns a trace ID; injects into the logging context.
-3. **STT (voice only)** — Audio → text via Speech-to-Text client.
-4. **Customer context fetch** — `CustomerContextRepository` looks up caller in BigQuery (cached per-conversation).
-5. **Routing** — `RouterAgent` classifies intent + journey + confidence.
-6. **Confidence gate** — If confidence < `ROUTER_CONFIDENCE_THRESHOLD`, escalate.
-7. **Specialist dispatch** — Strategy pattern picks `OrderStatusAgent` | `ProductQAAgent` | `ServiceRequestAgent`.
-8. **Tool calls** — Specialist calls retrieval and/or BigQuery as needed.
-9. **Synthesis** — Synthesizer agent (Gemini Pro) drafts a response with explicit citations.
-10. **Grounding verification** — Verifier checks each claim. If ungrounded → refuse + escalate.
-11. **TTS (voice only)** — Text → audio.
-12. **Response** — `{text, audio_url?, trace_id, agent_metadata}` returned to client.
-13. **Trace flush** — All events for this turn persist to BigQuery via the trace sink.
+### 4.1 A chat turn — per-turn pipeline (target: ADK agent run)
+
+A turn is a single ADK `Runner.run(session, user_message)` invocation. The agent hierarchy is constructed once at process start (lazy-cached `build_root_agent()`); each turn reuses or creates a `Session` whose ID is the conversation's trace ID. `Session.state` carries the modality, customer ID, retrieved passages, attempts counter, and trace event log.
+
+1. **Ingress** — Customer sends a chat message. Hits `POST /agent/turn`. (Voice does not go through this pipeline — see §4.3.)
+2. **Trace allocation** — FastAPI middleware extracts or assigns a trace ID and uses it as the ADK `Session.id`. It also goes onto the contextvar-based logging context.
+3. **`pre_processing_agent` runs** — A short ADK agent whose tools execute in order:
+   - `dlp_redact` — Cloud DLP de-identifies the utterance before any LLM sees it. Falls back to regex if the DLP circuit is open. Writes `Session.state.redacted_utterance`.
+   - `customer_context_lookup` — BigQuery lookup of caller (loyalty tier, recent orders, prior contacts). Writes `Session.state.customer_context`.
+   Both invocations emit one trace event each via the `before_tool` / `after_tool` callbacks.
+5. **`coordinator_agent` runs (Gemini 2.5 Flash)** — The coordinator's instructions describe the four sub-agents and ask the model to choose one (`order_status_agent`, `product_qa_agent`, `service_request_agent`, `escalation_agent`) or respond directly with a refusal for `out_of_scope`. The model emits a delegation via ADK's native `transfer_to_agent`. The `before_model` callback captures the planned intent + confidence; the `after_model` callback enforces the confidence gate — below threshold, it overrides delegation to `escalation_agent`.
+6. **Specialist sub-agent runs** — control transfers to the chosen sub-agent:
+   - `order_status_agent` — calls `lookup_recent_orders` (and optionally `lookup_order_by_id`), composes a grounded answer citing the order rows.
+   - `product_qa_agent` — calls `hybrid_search` (which invokes `retrieval/` for Vertex AI Search semantic + keyword → RRF → cross-encoder reranker). Composes an answer citing `passage_id`s.
+   - `service_request_agent` — calls `extract_slots`; if any required slot is missing, it asks a clarifying question and the turn completes early (the verifier step is skipped because the response is a clarification, not a factual claim). When all slots are filled it calls `confirm_appointment`.
+   - `escalation_agent` — produces a brief handoff message; sets `Session.state.escalate = True`.
+7. **`post_processing_agent` runs** — calls the `grounding_verify` tool (Gemini 2.5 Pro LLM-as-judge) over `Session.state.draft_response` and `Session.state.retrieved_passages` (and / or order rows for `order_status`). The retry policy is implemented as **a `LoopAgent` wrapping `coordinator_agent → post_processing_agent`** with a max-iterations cap (`settings.max_grounding_retries + 1`). On each loop:
+   - `grounded` → the `after_agent` callback sets `state.done = True`, the `LoopAgent` exits.
+   - `not grounded AND iterations < max` → the loop re-runs; `state.attempts += 1` and `state.stricter_synthesis = True` is read by the specialist's instruction template to tighten the citation rule.
+   - `not grounded AND iterations == max` → the `after_agent` callback transfers control to `escalation_agent` and sets `state.done = True`.
+
+   **Why `LoopAgent`, not a plain `after_agent` re-invocation:** ADK's callback API (pre-1.0) does not cleanly support re-running a sibling sub-agent from inside another agent's `after_agent` hook — the call would be out of band of the runtime's own iteration accounting. `LoopAgent` is the supported, observable, bounded pattern. The grounding-retry behaviour is identical from the caller's perspective.
+8. **Response** — `{text, trace_id, agent_metadata}` returned to client.
+9. **Trace flush** — Every ADK lifecycle hook (`before_agent`, `after_agent`, `before_tool`, `after_tool`, `before_model`, `after_model`) emits a structured trace event keyed by `Session.id` (the trace ID). The events persist to BigQuery via the `TraceWriter` (best-effort: a BQ failure does not 500 the conversation).
+
+### 4.3 A voice turn (`WS /agent/voice/live`) — Gemini Live API
+
+Voice is **bidirectional and stateful**: a single WebSocket carries the entire conversation, not a turn. The pipeline is separate from the batched chat path because Gemini Live owns VAD, turn detection, barge-in, and streaming TTS itself; we hand it the system instruction and tools, and let it stream. Everything outside the model — repositories, DLP, trace writes, customer context — is shared with the chat pipeline by going through the existing services.
+
+```
+browser                                 backend (FastAPI)                      Vertex AI
+─────────────                            ────────────────────                   ──────────────
+getUserMedia 16 kHz mono PCM             /agent/voice/live (WebSocket)
+  │                                        │
+  │ open WS  ───────────────────────────► accept, allocate trace_id
+  │                                        │ open Gemini Live session ─────► gemini-2.0-flash-live
+  │                                        │                                   (system instruction +
+  │                                        │                                    tool declarations)
+  │  ◄── status: ready                     │
+  │                                        │
+  │ {type:"audio", data:<b64 PCM 16k>} ──► forward to Live as inline_data ────►
+  │  (every ~100 ms, AudioWorklet)         │
+  │                                        │ ◄── server VAD detects end-of-utterance
+  │                                        │ ◄── transcript (input_transcription)
+  │                                        │   write trace: live_user_transcript
+  │                                        │   DLP de-identify the transcript
+  │                                        │
+  │                                        │ ◄── tool_call(name, args)
+  │                                        │   execute via OrderRepository / KB / etc.
+  │                                        │   write trace: live_tool_call
+  │                                        │   send tool_response ─────────────►
+  │                                        │
+  │ ◄── {type:"audio", data:<b64 PCM 24k>} ◄── streaming PCM TTS
+  │   (streaming playback via Web Audio)   │
+  │                                        │ ◄── output_transcription
+  │                                        │   write trace: live_assistant_text
+  │                                        │
+  │ user starts talking again ──────────► forward audio
+  │                                        │   Live cancels current turn (barge-in)
+  │                                        │   write trace: live_interruption
+  │                                        │
+  │ close WS  ◄────────────────────────────┤   write trace: live_session_close
+                                              write conversation summary row
+```
+
+**Trace events specific to live mode** (added to `conversation_traces`, no schema change — `event_type` is a STRING):
+
+| event_type | When | Notable metadata |
+|---|---|---|
+| `live_session_open` | WS accepted, Live session created | `model`, `voice`, `customer_id`, `language` |
+| `live_user_transcript` | End-of-utterance VAD signal | `transcript`, `confidence`, `pii_redacted` |
+| `live_tool_call` | Gemini emits a `toolCall` | `tool_name`, `args`, `result_preview`, `latency_ms` |
+| `live_assistant_text` | Output transcript for an assistant turn | `transcript`, `interrupted` |
+| `live_interruption` | User barged in mid-response | `cancelled_text` |
+| `live_session_close` | WS closed | `duration_ms`, `turn_count`, `cost_usd` |
+
+**Tools registered with the Live session** (all wrap existing repositories):
+
+| Tool | Wraps | Purpose |
+|---|---|---|
+| `lookup_recent_orders(customer_id)` | `OrderRepository.recent_orders_for_customer` | Order-status journey. |
+| `lookup_order_by_id(order_id)` | `OrderRepository.get_order` | Caller cites an order number. |
+| `search_knowledge_base(query)` | KB stub (will be `retrieval/` once Vertex AI Search is wired) | Product / policy Q&A. |
+| `book_service_request(service_type, preferred_date, address)` | (synthetic confirmation, mirrors `service_request_agent`) | Service-request journey. |
+| `escalate_to_human(reason)` | Sets `Session.escalate=True` flag | Confidence-gate / explicit handoff. |
+
+**What is *not* duplicated in Live:**
+- DLP — runs over the user transcript via the same `dlp_service` used by `agent_service.handle_turn`.
+- Customer context — fetched once at session open via the same `OrderRepository`.
+- Trace writer — the same `TraceWriter`, same table, same trace ID, just new event types.
+- Cost — measured the same way (token counts emitted by Live in `usage_metadata` events, summed into the session-close trace event).
+
+**What *is* different in Live:**
+- The grounding verifier is **not** in the synchronous path (Live streams audio; we can't unsay it). Instead, an async post-turn verifier reads `live_assistant_text` from the trace and writes a `live_grounding_verdict` row that the Operator Console surfaces. Out of scope for v1.4 first-pass; documented as next-step.
+- Confidence gating happens **inside the model** via the system instruction (it's instructed to call `escalate_to_human` when uncertain) rather than via an external `after_model` callback. We accept this tradeoff: Live is the demo surface, batch is where the grounded-eval rigor lives.
 
 ### 4.2 An Operator action
 - **Live conversations list** — `GET /traces?since=<ts>&limit=50` returns a paginated summary view.
@@ -410,17 +572,31 @@ Frontend env vars (in Vercel):
 
 ## 9. Logging & Observability
 
+### Single source of truth for analytics: BigQuery
+
+ContactPulse deliberately uses **one** canonical store for everything a CX data scientist would query: **BigQuery**. The same shape a production deployment would feed into **Vertex AI Conversational Insights** (formerly Contact Center AI Insights). All three consumers — the Operator Console, the embedded Looker dashboard, and ad-hoc SQL — read from the same `conversations`, `conversation_traces`, and `eval_runs` tables. No third-party observability tool sits in the trace path.
+
+**Explicitly out of stack:** LangSmith, LangFuse, Helicone, and other LangChain-ecosystem tracing tools. These would split the trace surface across two storage backends and dilute the GCP-native, Conversational-Insights-compatible thesis. If a developer wants LangSmith for *local* prompt iteration on a single prompt, that's fine — but it never enters the deployed trace path, never runs in CI, and never sees production traffic.
+
 ### Structured Logging
 - JSON to stdout. Every log record includes: `trace_id`, `turn_index`, `concept`, `event_type`, `latency_ms`, `cost_usd` (when applicable).
 - Standard Python `logging` configured via `logging_setup.py`. No third-party logging framework.
 
-### Tracing
-- One `trace_id` per conversation, propagated via context vars.
-- Every LLM call, retrieval call, BigQuery query emits an event with the trace ID.
-- Cloud Trace ingests automatically; spans visible in GCP console.
+### Tracing — two surfaces, two audiences
 
-### Operator Console (in-app observability)
-- The Operator Console is the *primary* observability surface for non-GCP-savvy users.
+| Surface | Audience | Purpose | Source |
+|---|---|---|---|
+| **BigQuery `conversation_traces`** | CX data scientist (via Operator Console, Looker, ad-hoc SQL) | Per-conversation drill-down, eval correlation, error clustering, cost analysis. **Canonical.** | ADK lifecycle callbacks (`before_*` / `after_*`) write one row per stage, keyed by `Session.id` (= trace ID). |
+| **Cloud Trace + Cloud Logging** | Backend developer / SRE | Live request-path debugging, latency breakdowns, error rates. **Operational only.** | Auto-emitted by FastAPI middleware and the GCP client libraries. |
+
+The Operator Console reads BigQuery, never Cloud Trace. Cloud Trace is for the developer staring at p95 latency at 2am, not for the data-science workflow.
+
+- One `trace_id` per conversation, propagated via context vars.
+- Every LLM call, retrieval call, BigQuery query emits a BQ trace event with the trace ID.
+- Cloud Trace ingests automatically as a side effect; spans visible in GCP console for ops debugging.
+
+### Operator Console (in-app observability — the data-science surface)
+- The Operator Console is the *primary* observability surface for non-GCP-savvy users — exactly the role Conversational Insights would play in a production deployment.
 - Live Conversations refreshes every 5s.
 - Trace Drill-Down loads the full chain for one trace_id.
 - Error Analysis groups failed conversations by category.
@@ -473,13 +649,15 @@ A test pyramid, with eval-as-test on top.
 
 | Pattern | Where | Why |
 |---|---|---|
-| **Strategy** | `agents/base.py` defines `Agent`; specialists implement it. Router selects at runtime. | Adding a new journey is a new strategy class. |
-| **Chain of Responsibility** | Router → Specialist → Synthesizer → Verifier. Each step can short-circuit. | Linear, debuggable flow. Easy to insert new steps. |
-| **Repository** | `data/repositories/` abstracts BigQuery access. | Tests mock the repository; production hits BigQuery. |
-| **Factory** | `agents/router.py` returns specialist agents by intent. | Centralizes the agent registry; new agents register here. |
-| **Circuit Breaker** | `llm/circuit_breaker.py` wraps Gemini calls. Trips on repeated failures, falls back to refusal. | LLM APIs fail. Production systems must degrade gracefully. |
-| **Pydantic contracts** | All inter-module data is a Pydantic model. | Type safety, runtime validation, auto-documentation. |
-| **Template method** | Base `Agent.handle()` orchestrates pre-hook → specialist logic → post-hook. Subclasses override the middle. | Common observability/logging is defined once. |
+| **Agent hierarchy (ADK)** | `orchestration/agents.py` builds the `SequentialAgent` root; `coordinator.py` registers sub-agents on the coordinator's `sub_agents` list. The coordinator's instructions + ADK's native `transfer_to_agent` replace hand-rolled `if intent == "x": call_y()` dispatch. | Hierarchy is the source of truth for "what the agent does." Visualizable, testable per-agent via ADK's `Runner`, observable via lifecycle callbacks. |
+| **Sub-agent composition** | Each specialist (`order_status_agent`, `product_qa_agent`, `service_request_agent`, `escalation_agent`) is a separate `LlmAgent` with its own tools and instructions. | Adding a new journey is a new sub-agent + appending it to the coordinator's `sub_agents` list — never a new `if`/`elif` branch. Forward-compatible with A2A. |
+| **Lifecycle callbacks (Chain-of-Responsibility, declarative)** | `callbacks/confidence_gate.py` (`after_model` on coordinator), `callbacks/grounding_retry.py` (`after_agent` on post-processor), `callbacks/trace.py` (every hook → BQ trace event). | Cross-cutting concerns (gating, retries, observability) declared once and applied uniformly, instead of repeated `try`/`if` blocks. |
+| **Tool boundary** | All side effects (DLP, BQ, Vertex AI Search, slot extraction, grounding verify) are typed Python functions registered as ADK tools. Sub-agents declare them on their `tools` list. | Forces every external interaction through the typed-function boundary; tests mock the tool, not the agent. ADK's typed-tool schema also gates inputs and surfaces them in the trace. |
+| **Repository** | `data/repositories/` abstracts BigQuery access. Tools call repositories; agents call tools. | Tests mock the repository; production hits BigQuery. No SQL above the repository layer. |
+| **Circuit Breaker** | `llm/circuit_breaker.py` wraps every Gemini, Vertex AI Search, and DLP call inside the relevant tool. Trips on repeated failures, falls back to refusal/regex/error. | External APIs fail. Production systems must degrade gracefully. |
+| **Pydantic contracts** | Tool input/output schemas, repository signatures, and the typed view of `Session.state` are all Pydantic models. | Type safety, runtime validation, auto-documentation; ADK accepts Pydantic models as tool argument schemas. |
+| **Hybrid retrieval pipeline** | `retrieval/` composes Vertex AI Search (semantic + keyword) → RRF fusion → cross-encoder reranker as a small linear pipeline behind one method. The `hybrid_search` ADK tool is a one-line wrapper around it. | Keeps the tool simple; swappable retrieval components for ablations. |
+| **Infrastructure as code** | All GCP resources in `infra/terraform/`. Backend reads resource IDs (search engine, dataset, buckets) from env vars set at Cloud Run deploy time, sourced from Terraform outputs via Secret Manager / env-var-from-secret bindings. | The deployment shape is reviewable, diff-able, and reproducible. |
 | **MVVM (frontend)** | Views are presentational; data via TanStack Query hooks. | Views never call APIs directly; testable in isolation. |
 
 ---
@@ -498,7 +676,9 @@ A test pyramid, with eval-as-test on top.
 - Router (Flash, ~200 input + ~50 output tokens): ~$0.00007
 - Synthesis (Pro, ~1500 input + ~150 output tokens): ~$0.0008
 - Verifier (Pro, ~1000 input + ~50 output tokens): ~$0.0005
-- **Total LLM cost per turn: ~$0.0014**
+- **Total LLM cost per turn (back-of-envelope estimate): ~$0.0014**
+
+The harness's `cost_per_call_usd` metric is the source of truth — it's the arithmetic mean of measured per-query cost across the run, summed from each LLM call's `cost_usd` captured via the trace tap (`backend.repositories.trace_writer.capture_trace_events`). The estimate above is a sanity-check, not a claim.
 
 At 1M calls/year, LLM cost ≈ $1,400. Compared to associate handle time at ~$0.50/min × 5 min = $2.50/call, displaced cost ≈ $2.5M/year.
 

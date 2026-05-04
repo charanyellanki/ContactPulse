@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     grounding_min_score: float = 0.8
     max_grounding_retries: int = 1
 
+    # Eval — minimum reranker score for a retrieval result to count as a "hit"
+    # in retrieval-hit-rate@k. Tuned for the current synthetic KB; production
+    # would re-tune per-corpus.
+    retrieval_hit_threshold: float = 0.5
+
     # Circuit breaker
     circuit_breaker_failure_threshold: int = 3
     circuit_breaker_window_seconds: int = 60
@@ -45,18 +50,24 @@ class Settings(BaseSettings):
     # DLP
     dlp_enabled: bool = True
 
-    # Voice — STT v2
-    stt_location: str = "global"
-    stt_model: str = "chirp"
-    stt_language_code: str = "en-US"
-
-    # Voice — TTS v1
-    tts_voice_name: str = "en-US-Neural2-F"
-    tts_language_code: str = "en-US"
-    tts_speaking_rate: float = 1.0
-
-    # Voice — request limits
-    voice_max_audio_bytes: int = 5_000_000  # ~30s at 128kbps mp3 / ~10s WAV 16k
+    # Live voice (Gemini Live API on Vertex AI). See CLAUDE.md §14.
+    # Vertex Live model IDs as of 2026-05 (per-project allowlist applies —
+    # check via `curl … publishers/google/models | grep live`):
+    #   - "gemini-live-2.5-flash-native-audio"           — current default,
+    #     native audio, broadly available, supports the prebuilt-voice catalog.
+    #   - "gemini-2.0-flash-live-preview-04-09"          — older preview;
+    #     deprecated in many projects.
+    gemini_live_model: str = "gemini-live-2.5-flash-native-audio"
+    # Live API regional availability is tighter than chat — `us-central1`
+    # is supported across all live-capable models.
+    gemini_live_region: str = "us-central1"
+    # Prebuilt Vertex Live voices (2026-05): Aoede, Charon, Fenrir, Kore, Puck.
+    # Aoede is the warmest neutral US English voice for retail CX.
+    gemini_live_voice: str = "Aoede"
+    gemini_live_language: str = "en-US"
+    # Hard ceiling per WebSocket. The Live API itself caps at ~15 minutes;
+    # 10 minutes is generous for the demo and bounds the cost surface.
+    gemini_live_session_max_seconds: int = 600
 
     # Runtime
     environment: str = "development"

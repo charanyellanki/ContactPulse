@@ -3,6 +3,7 @@
     "cluster_id": "clu_001",
     "label": "Order/return ambiguity on anonymous calls",
     "failure_type": "router_misroute",
+    "modality": "voice",
     "count": 14,
     "description": "Anonymous voice callers describing 'a problem with my order' route to ambiguous and escalate. Without caller ID, the router cannot disambiguate order_status vs. return vs. service_request. Candidate: prompt the caller for an order number before routing.",
     "sample_trace_ids": ["trc_003_escalate", "trc_007_oos"]
@@ -11,6 +12,7 @@
     "cluster_id": "clu_002",
     "label": "Battery / runtime spec hallucinations on cordless tools",
     "failure_type": "grounding_rejection",
+    "modality": "both",
     "count": 9,
     "description": "Synthesizer over-generates battery quantity and runtime numbers for cordless tool SKUs, even when the KB passage is correct. Verifier catches these on attempt 1; retry typically passes. Candidate: stricter 'cite-or-refuse' instruction in synthesizer prompt for numeric specs.",
     "sample_trace_ids": ["trc_002_qa_retry", "trc_008_qa_long"]
@@ -19,6 +21,7 @@
     "cluster_id": "clu_003",
     "label": "Service-request slot loss across long voice turns",
     "failure_type": "lost_context",
+    "modality": "voice",
     "count": 7,
     "description": "Voice service-request conversations longer than 4 turns lose previously-collected slots (preferred date, address). Specialist re-asks the same questions and customers escalate in frustration. Candidate: explicit slot ledger in conversation state.",
     "sample_trace_ids": ["trc_009_service_lost"]
@@ -27,6 +30,7 @@
     "cluster_id": "clu_004",
     "label": "Over-eager refusal on stocked but obscure SKUs",
     "failure_type": "over_eager_refusal",
+    "modality": "chat",
     "count": 5,
     "description": "Q&A on long-tail SKUs refuses with 'I don't have that information' even though retrieval surfaces relevant passages with rerank scores ≥ 0.6. Threshold tuning candidate: lower retrieval gate from 0.7 to 0.55 for product_qa.",
     "sample_trace_ids": ["trc_005_qa_refusal"]
@@ -35,8 +39,18 @@
     "cluster_id": "clu_005",
     "label": "Vertex Search timeouts during peak indexing",
     "failure_type": "tool_error",
+    "modality": "both",
     "count": 3,
     "description": "Retrieval calls return 504 from Vertex AI Search during the 09:00 UTC reindex window. Circuit breaker trips and the agent refuses. Candidate: pin retrieval to the previous index version while reindexing.",
+    "sample_trace_ids": []
+  },
+  {
+    "cluster_id": "clu_006",
+    "label": "Voice STT mishears order numbers under background noise",
+    "failure_type": "router_misroute",
+    "modality": "voice",
+    "count": 6,
+    "description": "Chirp STT confidence < 0.55 on the order-number digit string when caller environment is noisy (in-store ambient, hold music). Router then receives a malformed order_id and routes to ambiguous. Candidate: digit-by-digit confirmation prompt when STT confidence < 0.6 on numeric tokens.",
     "sample_trace_ids": []
   }
 ]

@@ -42,7 +42,7 @@ from backend.models.agent import AgentRequest, AgentResponse
 from backend.models.common import IntentOrAmbiguous
 from backend.repositories.bigquery_client import get_bq_client
 from backend.repositories.order_repo import OrderRepository
-from backend.repositories.trace_writer import TraceWriter
+from backend.repositories.trace_writer import TraceWriter, capture_trace_events
 from backend.services.dlp_service import get_dlp_service
 
 log = logging.getLogger(__name__)
@@ -248,8 +248,73 @@ def _dispatch_specialist(
     raise ValueError(f"unknown journey: {journey}")
 
 
+def _outcome_from_response(response: AgentResponse) -> str:
+    """Map an `AgentResponse` to the `conversations.outcome` enum value."""
+    if response.response_text.strip() == REFUSAL_TEXT:
+        return "refused"
+    if response.escalate:
+        return "escalated"
+    return "contained"
+
+
+def _journey_from_intent(intent: str) -> str | None:
+    """Map the response's intent label to a `conversations.journey` value, or
+    None for synthesis-skipping paths (escalate, ambiguous, out_of_scope)."""
+    if intent in {"order_status", "product_qa", "service_request"}:
+        return intent
+    return None
+
+
+def _sum_event_costs(events: list[dict]) -> float:
+    """Sum every captured event's `metadata.cost_usd` for the conversations
+    summary row. Mirrors the eval harness's `_sum_cost`; kept inline here to
+    avoid a backend → evals import."""
+    total = 0.0
+    for ev in events:
+        cost = ev.get("metadata", {}).get("cost_usd")
+        if cost is not None:
+            try:
+                total += float(cost)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
 def handle_turn(request: AgentRequest) -> AgentResponse:
-    """Run the full per-turn pipeline and return an AgentResponse."""
+    """Run the full per-turn pipeline and return an AgentResponse.
+
+    Wraps the inner pipeline in a `capture_trace_events` block so that, after
+    the response is finalized, we can write a one-row summary into the
+    `conversations` table — the source the Operator Console's Live
+    Conversations view reads. Without that summary row, demo turns would land
+    in `conversation_traces` (event-level) but never appear in the headline
+    list, which is the demo's most important screen.
+    """
+    with capture_trace_events() as turn_events:
+        response = _handle_turn_impl(request)
+
+    # Best-effort summary write. Errors are logged inside the writer.
+    try:
+        _trace_writer().write_conversation_summary(
+            trace_id=response.trace_id,
+            modality=request.modality,
+            customer_id=request.customer_id,
+            tier=None,           # customer-context lookup not yet wired into handle_turn
+            journey=_journey_from_intent(response.intent),
+            outcome=_outcome_from_response(response),
+            turns=1,
+            latency_p50_ms=response.latency_ms,
+            cost_usd=_sum_event_costs(turn_events),
+        )
+    except Exception:                          # noqa: BLE001 — must not propagate
+        log.exception("conversation summary write failed")
+
+    return response
+
+
+def _handle_turn_impl(request: AgentRequest) -> AgentResponse:
+    """Inner pipeline — same shape as before. Public callers go through
+    `handle_turn`, which adds the conversation-summary write."""
     started = time.perf_counter()
     settings = get_settings()
     tw = _trace_writer()

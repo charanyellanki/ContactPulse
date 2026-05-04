@@ -66,3 +66,12 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
+
+/* VoiceOrb breathing rings (CustomerExperience hero). Three of these are
+   stacked with staggered delays so the orb feels "alive" while idle-but-
+   listening, signalling the conversation is continuous. */
+@keyframes voiceorb-pulse {
+  0%   { transform: scale(0.95); opacity: 0;    }
+  20%  { opacity: 0.55;                          }
+  100% { transform: scale(1.55); opacity: 0;    }
+}

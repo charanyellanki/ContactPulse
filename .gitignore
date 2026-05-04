@@ -1,9 +1,38 @@
+# Node / Vite
 node_modules
 dist
 dist-ssr
 *.local
+.vite
+
+# TypeScript build output
+**/tsconfig.tsbuildinfo
+**/*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+
+# Secrets — never commit
 .env
 .env.local
-.vite
+*.env.local
+secrets/
+*service-account*.json
+*credentials*.json
+
+# Editor / OS noise
 .DS_Store
-.venv/
+.idea/
+.vscode/
+
+# Claude Code state
+.claude/

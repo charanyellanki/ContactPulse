@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  getBatchEvalPreview,
   listCustomers,
   listConversations,
   listErrorClusters,
   listEvalRuns,
   getTrace,
 } from "./client";
+import type { SampleModality } from "./types";
 
 export const queryKeys = {
   customers: ["customers"] as const,
@@ -13,6 +15,7 @@ export const queryKeys = {
   trace: (traceId: string) => ["trace", traceId] as const,
   evalRuns: ["eval-runs"] as const,
   errorClusters: ["error-clusters"] as const,
+  batchPreview: (modality: SampleModality) => ["batch-preview", modality] as const,
 };
 
 export function useCustomers() {
@@ -37,4 +40,12 @@ export function useEvalRuns() {
 
 export function useErrorClusters() {
   return useQuery({ queryKey: queryKeys.errorClusters, queryFn: listErrorClusters });
+}
+
+export function useBatchEvalPreview(modality: SampleModality) {
+  return useQuery({
+    queryKey: queryKeys.batchPreview(modality),
+    queryFn: () => getBatchEvalPreview(modality),
+    refetchInterval: 10_000, // refresh the "N new" hint every 10s
+  });
 }

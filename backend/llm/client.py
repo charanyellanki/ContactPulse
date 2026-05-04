@@ -110,11 +110,18 @@ def generate(
     temperature: float = 0.2,
     max_output_tokens: int = 512,
     response_mime_type: str | None = None,
+    timeout_s: float | None = 60.0,
 ) -> LLMResult:
     """Single Gemini call. Returns LLMResult; raises AgentError on failure.
 
     `response_mime_type="application/json"` activates Vertex's JSON-mode where
     available; we fall back to lenient parsing in `generate_json` either way.
+
+    `timeout_s` is currently a no-op — the installed `vertexai` SDK
+    (`google-cloud-aiplatform`) does not accept a per-call `request_options`
+    kwarg on `generate_content`. The parameter is retained in the signature
+    so callers don't break; if the SDK gains support we wire it up here. The
+    circuit breaker still bounds total exposure.
     """
     name = _circuit_name(model)
     circuit_breaker.check(name)
@@ -183,6 +190,7 @@ def generate_json(
     prompt: str,
     temperature: float = 0.1,
     max_output_tokens: int = 512,
+    timeout_s: float | None = 60.0,
 ) -> tuple[dict, LLMResult]:
     """Generate + parse JSON. Returns (parsed_dict, llm_result)."""
     result = generate(
@@ -191,6 +199,7 @@ def generate_json(
         temperature=temperature,
         max_output_tokens=max_output_tokens,
         response_mime_type="application/json",
+        timeout_s=timeout_s,
     )
     try:
         parsed = parse_json_lenient(result.text)

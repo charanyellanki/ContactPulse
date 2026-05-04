@@ -1,6 +1,7 @@
 /**
  * Live-agent API client — calls the FastAPI backend for the Customer
- * Experience surface (chat: POST /agent/turn, voice: POST /agent/voice).
+ * Experience surface (chat: POST /agent/turn). Voice is realtime over the
+ * `WS /agent/voice/live` WebSocket — see `src/views/CustomerExperience/LiveVoice.tsx`.
  *
  * Kept separate from `client.ts` (which still serves the Operator Console
  * from JSON fixtures) so the live-conversation flow can be wired to a real
@@ -33,30 +34,14 @@ export const agentResponseSchema = z.object({
   latency_ms: z.number().int(),
 });
 
-export const voiceResponseSchema = agentResponseSchema.extend({
-  utterance: z.string(),
-  audio_base64: z.string(),
-  audio_mime: z.string(),
-  stt_latency_ms: z.number().int(),
-  tts_latency_ms: z.number().int(),
-});
-
 export type AgentTurnHistoryItem = z.infer<typeof turnHistoryItemSchema>;
 export type AgentResponse = z.infer<typeof agentResponseSchema>;
-export type VoiceResponse = z.infer<typeof voiceResponseSchema>;
 
 interface TurnArgs {
   trace_id: string;
   customer_id: string | null;
   utterance: string;
   modality: "chat" | "voice";
-  history: AgentTurnHistoryItem[];
-}
-
-interface VoiceArgs {
-  trace_id: string;
-  customer_id: string | null;
-  audio_base64: string;
   history: AgentTurnHistoryItem[];
 }
 
@@ -75,8 +60,4 @@ async function postJson<T>(path: string, body: unknown, schema: z.ZodType<T>): P
 
 export function postAgentTurn(args: TurnArgs): Promise<AgentResponse> {
   return postJson("/agent/turn", args, agentResponseSchema);
-}
-
-export function postAgentVoice(args: VoiceArgs): Promise<VoiceResponse> {
-  return postJson("/agent/voice", args, voiceResponseSchema);
 }

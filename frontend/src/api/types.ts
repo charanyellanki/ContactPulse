@@ -67,6 +67,18 @@ export interface Order {
 
 export type Modality = "voice" | "chat";
 
+/**
+ * Customer-Experience modality (UI-only). Two modes per CLAUDE.md §14:
+ *   - "chat":  text in / text out, fastest path, every eval is chat.
+ *   - "voice": realtime conversational voice via Gemini Live (WebSocket).
+ *
+ * The trace-side `Modality` (`voice` | `chat`) describes how a row was
+ * recorded; live conversations land in BigQuery as `modality="voice_live"`
+ * (a string field, no schema change). Operator Console filters surface them
+ * under "voice".
+ */
+export type CxModality = "voice" | "chat";
+
 export type Journey =
   | "order_status"
   | "product_qa"
@@ -260,13 +272,18 @@ export interface EvalRunMetricRow {
 
 export interface EvalRunPrimaryMetrics {
   containment: number;
-  refusal_precision: number;
-  intent_accuracy: number;
-  retrieval_hit_rate_at_5: number;
-  hallucination_rate_post_verifier: number;
-  latency_p95_ms: number;
-  cost_per_call_usd: number;
+  // Label-dependent metrics — null on production rows because production
+  // conversations have no ground truth (matches backend Pydantic model).
+  refusal_precision: number | null;
+  intent_accuracy: number | null;
+  retrieval_hit_rate_at_5: number | null;
+  hallucination_rate_post_verifier: number | null;
+  latency_p95_ms: number | null;
+  cost_per_call_usd: number | null;
 }
+
+export type EvalRunSource = "golden" | "production";
+export type SampleModality = "voice" | "chat" | "all";
 
 export interface EvalRunPerJourney {
   journey: Journey;
@@ -280,6 +297,8 @@ export interface EvalRunSummary {
   git_sha: string;
   config_hash: string;
   total_queries: number;
+  source: EvalRunSource;
+  sample_modality: SampleModality | null;
   primary_metrics: EvalRunPrimaryMetrics;
 }
 
@@ -298,11 +317,19 @@ export type FailureType =
   | "lost_context"
   | "tool_error";
 
+/** Channel scope for an error cluster. "both" surfaces under either filter. */
+export type ClusterModality = "voice" | "chat" | "both";
+
 export interface ErrorCluster {
   cluster_id: string;
   label: string;
   failure_type: FailureType;
+  /** Defaults to "both" on legacy clusters that haven't been tagged yet. */
+  modality: ClusterModality;
   count: number;
   description: string;
   sample_trace_ids: string[];
 }
+
+/** Operator Console page-level filter — voice / chat / all. */
+export type ChannelFilter = "voice" | "chat" | "all";

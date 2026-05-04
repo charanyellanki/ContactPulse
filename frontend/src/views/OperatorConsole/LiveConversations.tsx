@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useConversations } from "@/api/queries";
 import { useUiStore } from "@/store/ui";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TierBadge } from "@/components/TierBadge";
 import { formatCostUsd, formatLatency, formatTimestamp } from "@/lib/format";
-import type { Outcome } from "@/api/types";
+import type { Outcome, TraceSummary } from "@/api/types";
 
 const outcomeVariant: Record<Outcome, "success" | "warning" | "destructive" | "secondary"> = {
   contained: "success",
@@ -22,9 +23,26 @@ interface Props {
 export function LiveConversations({ onOpenTrace }: Props) {
   const { data, isLoading } = useConversations();
   const selectTrace = useUiStore((s) => s.selectTrace);
+  const channel = useUiStore((s) => s.ocChannelFilter);
+
+  const filtered: TraceSummary[] | undefined = useMemo(() => {
+    if (!data) return undefined;
+    if (channel === "all") return data;
+    return data.filter((r) => r.modality === channel);
+  }, [data, channel]);
 
   if (isLoading) {
     return <Skeleton className="h-64 w-full" />;
+  }
+
+  if (filtered && filtered.length === 0) {
+    return (
+      <Card>
+        <CardContent className="grid h-32 place-items-center text-sm text-muted-foreground">
+          No {channel} conversations in the latest window. Switch channel to "all" to compare across modalities.
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -45,7 +63,7 @@ export function LiveConversations({ onOpenTrace }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data?.map((row) => {
+            {filtered?.map((row) => {
               const detailed = ["trc_001_order_happy", "trc_002_qa_retry", "trc_003_escalate"].includes(
                 row.trace_id,
               );
